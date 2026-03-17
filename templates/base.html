@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Facebook 互动管理{% endblock %} — FBManager</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="切换导航栏">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z"/></svg>
+            </button>
+            <div class="brand">
+                <div class="brand-icon">FB</div>
+                <div>
+                    <div class="brand-name">FB Manager</div>
+                    <div class="brand-sub">互动管理台</div>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">主菜单</div>
+            <a href="/" class="nav-item {% block nav_home %}{% endblock %}">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 7v8h5v-4h4v4h5V7L8 1z"/></svg>
+                <span class="nav-text">概览</span>
+            </a>
+            <a href="/comments" class="nav-item {% block nav_comments %}{% endblock %}">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1H2a1 1 0 00-1 1v9a1 1 0 001 1h3l3 3 3-3h3a1 1 0 001-1V2a1 1 0 00-1-1zM4 6h8v1H4V6zm0 2h5v1H4V8zm0-4h8v1H4V4z"/></svg>
+                <span class="nav-text">评论中心</span>
+            </a>
+            <a href="/monitors" class="nav-item {% block nav_monitors %}{% endblock %}">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3a1 1 0 011-1h12a1 1 0 011 1v8a1 1 0 01-1 1H9l1 2H6l1-2H2a1 1 0 01-1-1V3zm1 0v8h12V3H2zm1 1h10v1H3V4zm0 2h10v1H3V6zm0 2h6v1H3V8z"/></svg>
+                <span class="nav-text">帖子监控</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <label for="sidebar-account-select" class="sidebar-field-label">当前账号</label>
+            <select id="sidebar-account-select" class="sidebar-select"></select>
+            <form method="post" action="/logout">
+                <button type="submit" class="btn btn-secondary btn-sm sidebar-logout">退出登录</button>
+            </form>
+            <div class="sidebar-version">FBManager v2.0</div>
+        </div>
+    </aside>
+    <!-- Main -->
+    <div class="main-content">
+        <div class="page-area">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</div>
+<script src="/static/js/base.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

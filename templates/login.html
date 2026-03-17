@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员登录 - FB Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- 引入 Lucide 图标 -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="login-body">
+<div class="login-container">
+    <div class="login-card">
+        <!-- 左侧：品牌展示区 -->
+        <section class="login-brand">
+            <div class="brand-content">
+                <div class="brand-logo">
+                    <i data-lucide="shield-check"></i>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-tag">SECURE ACCESS</span>
+                    <h1 class="brand-title">FB Manager</h1>
+                    <p class="brand-description">专业级 Facebook 评论监控与 AI 自动回复管理系统</p>
+                </div>
+                <div class="brand-features">
+                    <div class="feature-item">
+                        <i data-lucide="lock" class="feature-icon"></i>
+                        <span>安全加密存储</span>
+                    </div>
+                    <div class="feature-item">
+                        <i data-lucide="zap" class="feature-icon"></i>
+                        <span>实时监控响应</span>
+                    </div>
+                    <div class="feature-item">
+                        <i data-lucide="bot" class="feature-icon"></i>
+                        <span>AI 智能回复</span>
+                    </div>
+                </div>
+            </div>
+            <div class="brand-footer">
+                <p>&copy; 2024 FB Manager Pro. All rights reserved.</p>
+            </div>
+        </section>
+
+        <!-- 右侧：登录表单区 -->
+        <section class="login-main">
+            <div class="login-header">
+                <h2>欢迎回来</h2>
+                <p>请输入管理员密码以继续</p>
+            </div>
+
+            {% if error %}
+            <div class="login-alert animate-shake">
+                <i data-lucide="alert-circle"></i>
+                <span>{{ error }}</span>
+            </div>
+            {% endif %}
+
+            <form method="post" action="/login" autocomplete="off" class="login-form">
+                <input type="hidden" name="next" value="{{ next or '/' }}">
+                
+                <div class="input-group">
+                    <label>管理账号</label>
+                    <div class="input-wrapper disabled">
+                        <i data-lucide="user" class="input-icon"></i>
+                        <input type="text" value="admin" readonly tabindex="-1">
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label for="password">安全密码</label>
+                    <div class="input-wrapper">
+                        <i data-lucide="key-round" class="input-icon"></i>
+                        <input id="password" name="password" type="password" required placeholder="请输入您的 16 位以上密码" autofocus>
+                    </div>
+                </div>
+
+                <button class="login-submit-btn" type="submit">
+                    <span>进入管理后台</span>
+                    <i data-lucide="arrow-right"></i>
+                </button>
+            </form>
+
+            <div class="login-help">
+                <i data-lucide="info"></i>
+                <p>首次使用？请在环境变量中设置 <code>ADMIN_PASSWORD</code> 后重启服务。</p>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+    // 初始化图标
+    lucide.createIcons();
+
+    // 如果有错误消息，自动聚焦到密码框
+    {% if error %}
+    document.getElementById('password').focus();
+    {% endif %}
+</script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}概览{% endblock %}
+{% block body_class %}{% endblock %}
+{% block nav_home %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">主页概览</h1>
+        <p class="page-subtitle">Facebook 主页连接状态与数据同步控制台</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="btn-sync-insights">同步洞察数据</button>
+        <button class="btn btn-primary btn-sm" id="btn-sync">立即同步</button>
+    </div>
+</div>
+
+<div id="home-alert" class="alert"></div>
+
+<!-- Settings -->
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+        <span class="card-title">账号配置</span>
+        <button class="btn btn-secondary btn-sm" id="btn-account-new">新增账号</button>
+    </div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="account-select">账号列表</label>
+                <select id="account-select"></select>
+            </div>
+            <div class="form-group">
+                <label for="account-name">账号名称</label>
+                <input type="text" id="account-name" placeholder="例如：主账号">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="account-page-id">PAGE_ID</label>
+                <input type="text" id="account-page-id" placeholder="Facebook Page ID">
+            </div>
+            <div class="form-group">
+                <label for="account-api-version">API_VERSION</label>
+                <input type="text" id="account-api-version" placeholder="v25.0">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="account-token">PAGE_ACCESS_TOKEN</label>
+            <textarea id="account-token" rows="2" placeholder="输入页面访问令牌"></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:8px">
+            <label for="account-verify-token">VERIFY_TOKEN</label>
+            <input type="text" id="account-verify-token" placeholder="Webhook 验证口令">
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-account-activate">设为当前账号</button>
+            <button class="btn btn-primary btn-sm" id="btn-account-save">保存账号</button>
+            <button class="btn btn-danger btn-sm" id="btn-account-delete">删除账号</button>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+        <span class="card-title">模型配置</span>
+        <button class="btn btn-primary btn-sm" id="btn-model-save">保存模型配置</button>
+    </div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="model-base-url">AI_API_BASE_URL</label>
+                <input type="text" id="model-base-url" placeholder="例如：https://.../v1">
+            </div>
+            <div class="form-group">
+                <label for="model-name">AI_MODEL</label>
+                <input type="text" id="model-name" placeholder="例如：qwen3.5-plus">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="model-api-key">AI_API_KEY</label>
+            <input type="password" id="model-api-key" placeholder="输入 API Key">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+            <label for="model-system-prompt">AI_SYSTEM_PROMPT</label>
+            <textarea id="model-system-prompt" rows="4" placeholder="系统提示词"></textarea>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+        <span class="card-title">管理员安全设置</span>
+        <button class="btn btn-primary btn-sm" id="btn-change-password">更新密码</button>
+    </div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="admin-old-password">当前密码</label>
+                <input type="password" id="admin-old-password" placeholder="请输入当前密码" autocomplete="current-password">
+            </div>
+            <div class="form-group">
+                <label for="admin-new-password">新密码（强密码）</label>
+                <input type="password" id="admin-new-password" placeholder="至少16位，包含大小写字母、数字、符号" autocomplete="new-password">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Profile -->
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+        <span class="card-title">主页信息</span>
+        <span id="profile-sync-time" class="text-xs text-muted">-</span>
+    </div>
+    <div class="card-body">
+        <div class="profile-grid">
+            <div class="profile-field">
+                <label>主页名称</label>
+                <div class="val" id="profile-name">加载中...</div>
+            </div>
+            <div class="profile-field">
+                <label>分类</label>
+                <div class="val" id="profile-category">-</div>
+            </div>
+            <div class="profile-field">
+                <label>用户名</label>
+                <div class="val" id="profile-username">-</div>
+            </div>
+            <div class="profile-field">
+                <label>粉丝数</label>
+                <div class="val" id="profile-fans">-</div>
+            </div>
+            <div class="profile-field" style="grid-column:span 2">
+                <label>主页链接</label>
+                <div class="val"><a id="profile-link" href="#" target="_blank" rel="noreferrer">-</a></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Insights stats -->
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+        <span class="card-title">主页洞察数据</span>
+        <button class="btn btn-ghost btn-sm" id="btn-refresh-insights">刷新</button>
+    </div>
+    <div class="card-body">
+        <div class="stats-row" id="page-insights-grid">
+            <div class="stat-item">
+                <div class="stat-label">等待同步</div>
+                <div class="stat-value">-</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sync controls -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">自定义同步</span>
+    </div>
+    <div class="card-body">
+        <div class="sync-form">
+            <div class="form-group">
+                <label for="sync-limit">帖子数量（最多 100）</label>
+                <input type="number" id="sync-limit" min="1" max="100" value="20" style="width:100px">
+            </div>
+            <div class="form-group">
+                <label for="sync-since">开始时间（ISO 8601，可选）</label>
+                <input type="text" id="sync-since" placeholder="如 2026-01-01" style="width:160px">
+            </div>
+            <div class="form-group">
+                <label for="sync-until">结束时间（ISO 8601，可选）</label>
+                <input type="text" id="sync-until" placeholder="如 2026-03-17" style="width:160px">
+            </div>
+            <button class="btn btn-primary" id="btn-sync-custom">开始同步</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/home.js"></script>
+{% endblock %}

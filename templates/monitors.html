@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}帖子监控{% endblock %}
+{% block body_class %}{% endblock %}
+{% block nav_monitors %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">帖子监控</h1>
+        <p class="page-subtitle">对指定帖子定时抓取评论，并自动调用 AI 生成回复（每条评论仅回复一次）。</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-primary btn-sm" id="btn-add-monitor">+ 添加监控</button>
+    </div>
+</div>
+
+<div id="monitor-alert" class="alert"></div>
+
+<!-- Monitor list -->
+<div id="monitor-list">
+    {% if monitors %}
+        {% for m in monitors %}
+        <div class="monitor-card" id="mc-{{ m.id }}">
+            <div class="monitor-card-header">
+                <div class="monitor-status-dot {% if m.enabled %}active{% else %}paused{% endif %}"></div>
+                <div class="monitor-meta">
+                    <div class="monitor-post-excerpt">{{ m.post_message or '（无内容）' }}</div>
+                    <div class="monitor-post-id">{{ m.post_id }}</div>
+                    <div class="monitor-tags">
+                        <span class="badge {% if m.enabled %}badge-success{% else %}badge-neutral{% endif %}">
+                            <span class="badge-dot"></span>
+                            {% if m.enabled %}监控中{% else %}已暂停{% endif %}
+                        </span>
+                        <span class="badge badge-info">每 {{ m.interval_seconds }}s</span>
+                        <span class="badge badge-neutral">深度 {{ m.max_depth }}</span>
+                    </div>
+                </div>
+                <div class="monitor-actions">
+                    <button class="btn btn-secondary btn-xs" onclick="toggleMonitorCard({{ m.id }})">详情</button>
+                    <button class="btn btn-secondary btn-xs" onclick="runMonitor({{ m.id }}, this)">立即执行</button>
+                    <button class="btn btn-secondary btn-xs" onclick="toggleMonitorEnabled({{ m.id }}, {{ m.enabled }}, this)">
+                        {% if m.enabled %}暂停{% else %}启用{% endif %}
+                    </button>
+                    <button class="btn btn-danger btn-xs" onclick="deleteMonitor({{ m.id }})">删除</button>
+                </div>
+            </div>
+            <div class="monitor-card-body">
+                <div class="monitor-detail-grid">
+                    <div class="monitor-detail-item">
+                        <label>上次执行</label>
+                        <div class="val">{{ m.last_run_at or '从未' }}</div>
+                    </div>
+                    <div class="monitor-detail-item">
+                        <label>执行状态</label>
+                        <div class="val">{{ m.last_run_status or '-' }}</div>
+                    </div>
+                    <div class="monitor-detail-item">
+                        <label>创建时间</label>
+                        <div class="val">{{ m.created_at or '-' }}</div>
+                    </div>
+                    <div class="monitor-detail-item">
+                        <label>帖子链接</label>
+                        <div class="val">
+                            {% if m.permalink_url %}
+                            <a href="{{ m.permalink_url }}" target="_blank" rel="noreferrer" style="color:var(--accent)">查看原帖 ↗</a>
+                            {% else %}-{% endif %}
+                        </div>
+                    </div>
+                </div>
+                <!-- Edit form -->
+                <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:4px">
+                    <div class="form-group mb-0">
+                        <label>抓取间隔（秒）</label>
+                        <input type="number" min="1" id="interval-{{ m.id }}" value="{{ m.interval_seconds }}" style="width:100px">
+                    </div>
+                    <div class="form-group mb-0">
+                        <label>最大回复深度（1-3）</label>
+                        <input type="number" min="1" max="3" id="depth-{{ m.id }}" value="{{ m.max_depth }}" style="width:80px">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="saveMonitor({{ m.id }})">保存设置</button>
+                </div>
+                <!-- Replied log -->
+                <div class="replied-table-wrap" id="replied-wrap-{{ m.id }}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 6px">
+                        <span class="text-sm fw-600">已回复记录</span>
+                        <button class="btn btn-ghost btn-xs" onclick="loadReplied({{ m.id }})">刷新</button>
+                    </div>
+                    <div class="table-wrap" id="replied-table-{{ m.id }}">
+                        <p class="text-xs text-muted">点击「刷新」加载记录。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">📡</div>
+        <p>尚未配置任何监控。点击右上角「添加监控」开始。</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add monitor modal -->
+<div class="modal-backdrop" id="add-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 class="modal-title">添加帖子监控</h2>
+            <button class="btn btn-ghost btn-icon" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="new-post-select">选择帖子</label>
+                <select id="new-post-select">
+                    <option value="">— 加载中 —</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="new-interval">抓取间隔（秒，最少 1）</label>
+                    <input type="number" id="new-interval" min="1" value="300">
+                </div>
+                <div class="form-group">
+                    <label for="new-depth">最大回复深度（1-3）</label>
+                    <input type="number" id="new-depth" min="1" max="3" value="1">
+                </div>
+            </div>
+            <p class="text-xs text-muted">深度 1 = 仅回复顶层评论；深度 2 = 顶层 + 一级回复；以此类推。每条评论全生命周期只回复一次。</p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" id="btn-create-monitor">创建监控</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/monitors.js"></script>
+{% endblock %}

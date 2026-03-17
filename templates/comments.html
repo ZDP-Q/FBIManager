@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}评论中心{% endblock %}
+{% block body_class %}fixed-layout{% endblock %}
+{% block nav_comments %}active{% endblock %}
+
+{% block content %}
+<div class="comments-layout">
+    <!-- Header bar -->
+    <div class="comments-toolbar">
+        <div style="flex:1">
+            <h1 class="page-title" style="margin:0 0 2px">评论中心</h1>
+            <p class="page-subtitle" style="margin:0">查看并管理帖子评论，支持手动回复与 AI 自动生成。</p>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-sync-comments">同步最新数据</button>
+    </div>
+
+    <div id="comments-alert" class="alert"></div>
+
+    <!-- Posts scroll area -->
+    <div class="posts-scroll">
+        {% if posts %}
+            {% for post in posts %}
+            <div class="post-card" data-post-id="{{ post.id }}">
+                <!-- Post header (always visible, clickable) -->
+                <div class="post-card-header" onclick="togglePost(this)">
+                    <span class="post-expand-icon">▶</span>
+                    <div class="post-meta">
+                        <div class="post-excerpt">{{ post.message or '（无内容）' }}</div>
+                        <div class="post-info-row">
+                            <span>{{ post.created_time or '-' }}</span>
+                            <span>{{ post.comments|length }} 条评论</span>
+                            {% if post.permalink_url %}
+                            <a href="{{ post.permalink_url }}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">查看原帖 ↗</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="post-actions-header" onclick="event.stopPropagation()">
+                        <button class="btn btn-secondary btn-xs" onclick="toggleInsights('{{ post.id }}', this)">洞察数据</button>
+                    </div>
+                </div>
+
+                <!-- Post body (collapsed by default) -->
+                <div class="post-body">
+                    <!-- Insights panel -->
+                    <div class="insights-panel" id="ins-{{ post.id }}">
+                        <div class="insights-grid" id="ins-grid-{{ post.id }}">
+                            <div class="ins-card"><div class="ins-label">加载中</div><div class="ins-value">-</div></div>
+                        </div>
+                    </div>
+
+                    <!-- Comment list -->
+                    <div class="comment-list">
+                        {% for comment in post.comments %}
+                        <div class="comment-item" id="ci-{{ comment.id }}">
+                            <div class="comment-top">
+                                <div class="comment-avatar">{{ (comment.author_name or '?')[0]|upper }}</div>
+                                <div class="comment-body">
+                                    <span class="comment-author">{{ comment.author_name or '匿名用户' }}</span>
+                                    <span class="comment-time">{{ comment.created_time or '' }}</span>
+                                    <p class="comment-text">{{ comment.message or '（空）' }}</p>
+                                </div>
+                            </div>
+                            <div class="comment-actions-row">
+                                <button class="btn btn-ghost btn-xs" onclick="toggleReplyForm('{{ comment.id }}')">回复</button>
+                                <button class="btn btn-ghost btn-xs" onclick="genAiReply('{{ comment.id }}', this)">AI 生成</button>
+                                <button class="btn btn-danger btn-xs" onclick="delComment('{{ comment.id }}')">删除</button>
+                            </div>
+                            <div class="reply-form-wrap" id="rf-{{ comment.id }}">
+                                <textarea id="rt-{{ comment.id }}" placeholder="输入回复，或点击「AI 生成」..."></textarea>
+                                <div class="reply-form-actions">
+                                    <button class="btn btn-secondary btn-sm" onclick="toggleReplyForm('{{ comment.id }}')">取消</button>
+                                    <button class="btn btn-primary btn-sm" onclick="sendReply('{{ comment.id }}')">发送</button>
+                                </div>
+                            </div>
+                        </div>
+                        {% for reply in comment.replies %}
+                        <div class="comment-item reply-item" id="ci-{{ reply.id }}">
+                            <div class="comment-top">
+                                <div class="comment-avatar">{{ (reply.author_name or '?')[0]|upper }}</div>
+                                <div class="comment-body">
+                                    <span class="comment-author">{{ reply.author_name or '匿名用户' }}</span>
+                                    <span class="comment-time">{{ reply.created_time or '' }}</span>
+                                    <p class="comment-text">{{ reply.message or '（空）' }}</p>
+                                </div>
+                            </div>
+                            <div class="comment-actions-row">
+                                <button class="btn btn-danger btn-xs" onclick="delComment('{{ reply.id }}')">删除</button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="empty-state" style="padding:20px">
+                            <p>该帖子暂无评论。</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">💬</div>
+            <p>暂无帖子数据，请先执行数据同步。</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/comments.js"></script>
+{% endblock %}

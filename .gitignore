@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[oc]
+.venv/
+.python-version
+
+# Config & Sensitive (CRITICAL)
+config.json
+*.json
+
+# Executables
+*.exe
+
+# UV
+uv.lock
