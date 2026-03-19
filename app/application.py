@@ -66,7 +66,10 @@ def create_app() -> FastAPI:
         host = request.headers.get("host", "")
         origin = request.headers.get("origin", "")
         referer = request.headers.get("referer", "")
-        origin_base = f"{request.url.scheme}://{host}" if host else ""
+        
+        # 适配反向代理后的协议识别
+        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        origin_base = f"{forwarded_proto}://{host}" if host else ""
 
         if not _is_public_path(path):
             session_id = request.cookies.get(SESSION_COOKIE)
@@ -78,26 +81,31 @@ def create_app() -> FastAPI:
 
             # 登录态下对敏感写操作做同源校验，降低 CSRF 风险
             if path.startswith("/api") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-                # 预先构建可能的本地来源基准
-                # 优先信任 Host 头部，因为它是浏览器根据访问地址自动生成的
                 if not origin_base and host:
-                    origin_base = f"{request.url.scheme}://{host}"
+                    origin_base = f"{forwarded_proto}://{host}"
 
+                def _normalize(url_str: str) -> str:
+                    # 移除协议头、末尾斜杠和默认端口，仅比较域名和有效端口
+                    u = url_str.lower().rstrip("/")
+                    if "://" in u:
+                        u = u.split("://", 1)[1]
+                    return u
+
+                target = _normalize(origin_base)
                 is_origin_ok = True
-                if origin and origin_base:
-                    # 去除末尾斜杠进行比较
-                    if origin.rstrip("/") != origin_base.rstrip("/"):
+                if origin:
+                    if _normalize(origin) != target:
                         is_origin_ok = False
                 
                 is_referer_ok = True
-                if referer and origin_base:
-                    if not referer.startswith(origin_base):
+                if referer:
+                    if not _normalize(referer).startswith(target):
                         is_referer_ok = False
 
                 if not is_origin_ok or not is_referer_ok:
                     logger.warning(
-                        "[security] 拦截到疑似跨站请求: path=%s, method=%s, origin=%s, referer=%s, expected_base=%s",
-                        path, request.method, origin, referer, origin_base
+                        "[security] 拦截到疑似跨站请求: path=%s, method=%s, origin=%s, referer=%s, expected_target=%s",
+                        path, request.method, origin, referer, target
                     )
                     return JSONResponse({"detail": "非法来源请求"}, status_code=403)
 
