@@ -67,8 +67,6 @@ def generate_strong_password(length: int = 24) -> str:
 def is_strong_password(password: str) -> bool:
     if len(password) < 16:
         return False
-    has_lower = any(c.islower() for c in password)
-    has_upper = any(c.isupper() for c in password)
+    has_alpha = any(c.isalpha() for c in password)
     has_digit = any(c.isdigit() for c in password)
-    has_symbol = any(c in "!@#$%^&*()-_=+[]{}" for c in password)
-    return has_lower and has_upper and has_digit and has_symbol
+    return has_alpha and has_digit

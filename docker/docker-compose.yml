@@ -8,8 +8,8 @@ services:
       # 限制只有宿主机本地可以访问容器
       - "127.0.0.1:8000:8000"
     environment:
-      # 在此处设置您的强密码环境变量
-      - ADMIN_PASSWORD=G8#vK2$mP9*zL4!xQ7@nW3&yB5^
+      # 使用不含特殊字符的稳健强密码，避免环境变量解析冲突
+      - ADMIN_PASSWORD=GeminiManager2026
       - TZ=Asia/Shanghai
     volumes:
       # 持久化数据库
