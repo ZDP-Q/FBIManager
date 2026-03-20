@@ -22,7 +22,12 @@
 <div class="card" style="margin-bottom:16px">
     <div class="card-header">
         <span class="card-title">账号配置</span>
-        <button class="btn btn-secondary btn-sm" id="btn-account-new">新增账号</button>
+        <div class="page-actions" style="margin: 0">
+            <button class="btn btn-ghost btn-sm" id="btn-account-export">导出 JSON</button>
+            <button class="btn btn-ghost btn-sm" id="btn-account-import">导入 JSON</button>
+            <input type="file" id="input-account-import" style="display:none" accept=".json">
+            <button class="btn btn-secondary btn-sm" id="btn-account-new">新增账号</button>
+        </div>
     </div>
     <div class="card-body">
         <div class="form-row">

@@ -165,6 +165,32 @@ async def delete_account_api(account_id: int):
     return {"status": "success"}
 
 
+@router.get("/settings/accounts/export")
+async def export_accounts_api():
+    accounts = list_accounts()
+    # Remove sensitive/internal fields if needed, but for "batch import/export" we keep tokens
+    export_data = []
+    for acc in accounts:
+        export_data.append({
+            "name": acc["name"],
+            "page_id": acc["page_id"],
+            "page_access_token": acc["page_access_token"],
+            "verify_token": acc["verify_token"],
+            "api_version": acc["api_version"],
+        })
+    return export_data
+
+
+@router.post("/settings/accounts/import")
+async def import_accounts_api(payload: list[dict]):
+    try:
+        from app.repositories import bulk_import_accounts
+        count = bulk_import_accounts(payload)
+        return {"status": "success", "count": count}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"导入失败: {exc}")
+
+
 @router.put("/settings/model")
 async def update_model_api(payload: ModelConfigPayload):
     upsert_model_config(

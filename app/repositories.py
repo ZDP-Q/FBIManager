@@ -135,6 +135,38 @@ def set_active_account(account_id: int) -> None:
         )
 
 
+def bulk_import_accounts(accounts: list[dict[str, Any]]) -> int:
+    """Import multiple accounts, UPSERT by page_id."""
+    count = 0
+    with get_connection() as connection:
+        for acc in accounts:
+            page_id = str(acc.get("page_id", "")).strip()
+            if not page_id:
+                continue
+            
+            connection.execute(
+                """
+                INSERT INTO account_configs (name, page_access_token, verify_token, page_id, api_version, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+                ON CONFLICT(page_id) DO UPDATE SET
+                    name = excluded.name,
+                    page_access_token = excluded.page_access_token,
+                    verify_token = excluded.verify_token,
+                    api_version = excluded.api_version,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    acc.get("name", f"Imported {page_id}"),
+                    acc.get("page_access_token", ""),
+                    acc.get("verify_token", ""),
+                    page_id,
+                    acc.get("api_version", "v25.0") or "v25.0",
+                ),
+            )
+            count += 1
+    return count
+
+
 def get_model_config() -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(

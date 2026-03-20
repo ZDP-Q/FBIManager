@@ -256,6 +256,58 @@ document.getElementById('btn-account-delete')?.addEventListener('click', async (
     }
 });
 
+document.getElementById('btn-account-export')?.addEventListener('click', async () => {
+    try {
+        const r = await fetch('/api/settings/accounts/export');
+        if (!r.ok) throw new Error('导出失败');
+        const data = await r.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `fb_accounts_export_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showAlert('导出成功。', 'success');
+    } catch (e) {
+        showAlert(e.message, 'error');
+    }
+});
+
+document.getElementById('btn-account-import')?.addEventListener('click', () => {
+    document.getElementById('input-account-import').click();
+});
+
+document.getElementById('input-account-import')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        try {
+            const payload = JSON.parse(event.target.result);
+            if (!Array.isArray(payload)) throw new Error('JSON 格式错误：应为账号数组');
+            
+            const r = await fetch('/api/settings/accounts/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!r.ok) throw new Error((await r.json()).detail || '导入失败');
+            const res = await r.json();
+            showAlert(`成功导入/更新 ${res.count} 个账号。`, 'success');
+            await loadSettings();
+        } catch (err) {
+            showAlert(err.message, 'error');
+        } finally {
+            e.target.value = ''; // Reset input
+        }
+    };
+    reader.readAsText(file);
+});
+
 document.getElementById('btn-model-save')?.addEventListener('click', async () => {
     const payload = {
         ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
