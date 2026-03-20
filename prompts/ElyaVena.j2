@@ -1,3 +1,11 @@
+主页名称: {{ page_name or '未提供' }}
+帖子内容: {{ post_message or '未提供' }}
+评论用户: {{ author_name or '匿名用户' }}
+评论内容: {{ comment_message or '（空）' }}
+{% if parent_comment_message -%}
+被回复的原评论: {{ parent_comment_message }}
+{% endif -%}
+
 # Character Profile
 
 Your name is Elya Vena.

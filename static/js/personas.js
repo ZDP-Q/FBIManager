@@ -36,21 +36,21 @@ function renderTable() {
     }
     
     tbody.innerHTML = promptsData.map((p, idx) => `
-        <tr>
+        <tr class="${p.is_active ? 'active-row' : ''}">
             <td>
                 <div style="font-weight:600;">${p.filename}</div>
             </td>
             <td>
                 ${p.is_active 
-                    ? '<span class="badge badge-success">当前使用</span>' 
-                    : '<span class="badge badge-secondary">未激活</span>'}
+                    ? '<span class="badge badge-success">正在使用</span>' 
+                    : '<span class="badge badge-neutral">备选</span>'}
             </td>
             <td>
                 <div class="actions">
                     <button class="btn btn-outline btn-sm" onclick="previewPrompt(${idx})">预览</button>
                     ${!p.is_active 
-                        ? `<button class="btn btn-primary btn-sm" onclick="activatePrompt('${p.filename}')">使用此人设</button>` 
-                        : `<button class="btn btn-primary btn-sm" disabled>使用此人设</button>`}
+                        ? `<button class="btn btn-primary btn-sm" id="btn-act-${idx}" onclick="activatePrompt('${p.filename}', ${idx})">使用此人设</button>` 
+                        : `<button class="btn btn-primary btn-sm" disabled style="opacity:0.6;cursor:not-allowed;">使用中</button>`}
                 </div>
             </td>
         </tr>
@@ -65,7 +65,12 @@ function previewPrompt(idx) {
     openModal('modal-preview');
 }
 
-async function activatePrompt(filename) {
+async function activatePrompt(filename, idx) {
+    const btn = document.getElementById(`btn-act-${idx}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '切换中...';
+    }
     try {
         const r = await fetch('/api/prompts/activate', {
             method: 'POST',
@@ -73,10 +78,14 @@ async function activatePrompt(filename) {
             body: JSON.stringify({ filename })
         });
         if (!r.ok) throw new Error('切换人设失败');
-        showAlert('已成功切换回复人设！', 'success');
-        loadPrompts();
+        showAlert('已成功切换回复人设！AI 将以此身份进行自动回复。', 'success');
+        await loadPrompts();
     } catch (e) {
         showAlert(e.message, 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '使用此人设';
+        }
     }
 }
 

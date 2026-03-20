@@ -1055,16 +1055,11 @@ textarea { resize: vertical; min-height: 80px; }
     }
 }
 
-@media (max-width: 820px) {
-    .login-card-pro {
-        grid-template-columns: 1fr;
-    }
-
-    .login-panel {
-        padding: 22px 20px;
-    }
-
-    .login-title {
-        font-size: 28px;
-    }
+/* Personas active row */
+.active-row {
+    background-color: var(--success-bg) !important;
 }
+.active-row td {
+    color: var(--success) !important;
+}
+

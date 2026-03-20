@@ -293,7 +293,29 @@ document.getElementById('btn-create-monitor')?.addEventListener('click', async (
     }
 });
 
+async function loadActivePersona() {
+    const badge = document.getElementById('active-persona-badge');
+    if (!badge) return;
+    try {
+        const r = await fetch('/api/prompts');
+        if (!r.ok) throw new Error('获取失败');
+        const res = await r.json();
+        const active = (res.data || []).find(p => p.is_active);
+        if (active) {
+            badge.textContent = active.filename;
+            badge.className = 'badge badge-success';
+        } else {
+            badge.textContent = '未配置';
+            badge.className = 'badge badge-neutral';
+        }
+    } catch (e) {
+        badge.textContent = '获取失败';
+        badge.className = 'badge badge-danger';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+    loadActivePersona();
     const ids = getMonitorIds();
     if (!ids.length) return;
 
