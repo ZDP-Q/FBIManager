@@ -1,60 +1,60 @@
 # FBIManager (Facebook Interaction Manager)
 
-一个基于 FastAPI 的 Facebook 互动管理系统，集成 AI 自动回复与多账号监控。
+A FastAPI-based Facebook interaction management system integrated with AI automated replies and multi-account monitoring.
 
-### 核心特性
+### Core Features
 
-- **安全性优先**：
-  - 基于管理员账号的身份验证（PBKDF2-SHA256，39万次迭代）。
-  - 内置 IP 限制机制，防止暴力破解（错误尝试多次后锁定）。
-  - HTTP-only/SameSite 安全 Cookie 会话管理。
-  - 核心操作（API 写入）强制同源校验，防御 CSRF。
-  - 安全响应头设置（CSP, X-Frame-Options 等）。
-- **智能监控与回复**：
-  - **Elio 专属人设**：AI 扮演一名 35 岁、自信且有魅力的成熟投资人，提供自然的社交回复。
-  - **同步增强**：深度适配 Facebook Graph API v25.0，支持多层级 Edge 回退策略（published_posts -> posts -> feed）。
-  - **智能重录机制**：检测在 Facebook 网页端被手动删除的 AI 回复，并允许系统重新生成/补发回复，确保互动完整。
-- **管理能力**：
-  - **多账号支持**：灵活切换不同 Page ID 的监控与回复任务。
-  - **配置分离**：账号配置（Access Token 等）与模型配置（OpenAI-like API, Prompt）独立管理，即时生效。
-  - **可视化面板**：提供直观的评论中心、帖子监控和同步状态展示。
+- **Security First**:
+  - Administrator-based authentication using PBKDF2-SHA256 with 390,000 iterations.
+  - Built-in IP-based login locking to prevent brute-force attacks (locks after multiple failed attempts).
+  - Secure session management with HTTP-only and SameSite cookies.
+  - CSRF protection for core write operations via mandatory origin/referer checks.
+  - Strict security response headers (CSP, X-Frame-Options, etc.).
+- **Intelligent Monitoring & Reply**:
+  - **Exclusive AI Persona (Elio)**: The AI portrays "Elio," a 35-year-old, confident, and charismatic investor, providing natural and engaging social interactions.
+  - **Enhanced Synchronization**: Deeply adapted to Facebook Graph API v25.0, supporting a multi-level edge fallback strategy (`published_posts` -> `posts` -> `feed`) for high reliability.
+  - **Smart Re-generation**: Detects if an AI reply was manually deleted on the Facebook web interface and allows the system to re-generate or re-send the reply, ensuring interaction integrity.
+- **Management Capabilities**:
+  - **Multi-Account Support**: Flexible switching between monitoring and reply tasks for different Page IDs.
+  - **Configuration Decoupling**: Account settings (Access Tokens, etc.) and model configurations (OpenAI-compatible APIs, Prompts) are managed independently and take effect immediately.
+  - **Visual Dashboard**: Provides intuitive views for comment management, post monitoring, and synchronization status.
 
-### 项目架构
+### Project Architecture
 
-- `app/auth.py` & `app/security.py`：核心身份验证与加密库。
-- `app/services/facebook.py`：高度封装的 Graph API v25.0 客户端。
-- `app/services/monitor.py`：基于任务调度的智能监控引擎。
-- `app/services/ai_reply.py`：对接大语言模型的自动回复逻辑。
-- `data/facebookmsg.sqlite3`：存储帖子、评论、回复及系统配置。
-- `reset_pwd.py`：用于初始化或重置管理员密码的 CLI 工具。
+- `app/auth.py` & `app/security.py`: Core authentication and encryption libraries.
+- `app/services/facebook.py`: Highly encapsulated Graph API v25.0 client.
+- `app/services/monitor.py`: Intelligent monitoring engine based on task scheduling.
+- `app/services/ai_reply.py`: Automated reply logic interfacing with Large Language Models (LLMs).
+- `data/facebookmsg.sqlite3`: SQLite database storing posts, comments, replies, and system configurations.
+- `reset_pwd.py`: CLI tool for initializing or resetting the administrator password.
 
-### 快速启动
+### Quick Start
 
-1. **安装依赖**：
+1. **Install Dependencies**:
    ```bash
    uv sync
    ```
 
-2. **初始化/重置密码**：
+2. **Initialize/Reset Password**:
    ```bash
    uv run python reset_pwd.py
    ```
-   *默认用户名为 `admin`。首次运行或环境变更时需手动设置强密码。*
+   *The default username is `admin`. A strong password (at least 16 characters) is required during the initial setup or environment change.*
 
-3. **运行应用**：
+3. **Run the Application**:
    ```bash
    uv run python main.py
    ```
-   访问 `http://127.0.0.1:8000` 并使用管理员账号登录。
+   Access `http://127.0.0.1:8000` and log in with your administrator account.
 
-### 配置说明
+### Configuration Guide
 
-在首页的**配置面板**或**安全设置**中进行维护：
-- **安全设置**：修改管理员当前密码（需符合 16 位及以上强密码要求）。
-- **账号配置**：`PAGE_ACCESS_TOKEN`、`PAGE_ID`、`API_VERSION` (建议 v25.0)。
-- **模型配置**：API 地址、密钥、模型名称以及 AI 系统提示词（Prompt）。
+Manage settings via the **Configuration Panel** or **Security Settings** on the home page:
+- **Security Settings**: Change the administrator's current password (must meet the 16-character strong password requirement).
+- **Account Configuration**: Set `PAGE_ACCESS_TOKEN`, `PAGE_ID`, and `API_VERSION` (v25.0 recommended).
+- **Model Configuration**: Configure the API endpoint, API key, model name, and the AI System Prompt.
 
-### 注意事项
+### Important Notes
 
-- **数据库备份**：生产环境下请定期备份 `data/facebookmsg.sqlite3`。
-- **API 权限**：确保 Page Access Token 拥有 `pages_manage_metadata`、`pages_read_engagement` 和 `pages_messaging` 等必要权限。
+- **Database Backup**: Regularly back up `data/facebookmsg.sqlite3` in production environments.
+- **API Permissions**: Ensure your Page Access Token has the necessary permissions, such as `pages_manage_metadata`, `pages_read_engagement`, and `pages_messaging`.
