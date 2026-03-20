@@ -113,6 +113,7 @@ class MonitorService:
         logger.info("[monitor] running monitor=%s post=%s depth=%s", monitor_id, post_id, max_depth)
 
         post = get_post(post_id) or {}
+        # 优先从数据库中获取规范化的数字 Page ID
         page_id = str(post.get("page_id", ""))
         if not page_id:
             raise RuntimeError(f"monitor={monitor_id} 关联帖子缺失 page_id")
@@ -121,52 +122,49 @@ class MonitorService:
         facebook = FacebookService(config)
         ai = AIReplyService(config)
 
-        # Fetch fresh comments from Facebook
+        # 获取最新的评论（包含回复）
         comments = await facebook.fetch_comments_for_post(post_id, limit=200)
 
-        # Upsert into local DB (incremental; don't delete existing)
+        # 更新本地数据库
         for comment in comments:
             upsert_comment(post_id, None, comment)
 
-        # Gather post/page context once
+        # 获取主页资料，用于获取主页名称和确认数字 ID
         profile = get_page_profile(page_id=page_id) or {}
+        # 最终确认使用的数字 Page ID
+        canonical_page_id = str(profile.get("page_id") or page_id)
 
-        replied_count = 0
-        skipped_count = 0
+        stats = {"replied": 0, "skipped": 0}
 
-        for comment in comments:
-            # depth 1: top-level comments
-            count, skipped = await self._process_comment(
-                comment,
+        # 递归处理所有评论
+        async def _process_recursive(current_comment: dict[str, Any], depth: int, parent_msg: str = ""):
+            # 1. 基础处理：尝试回复当前评论
+            replied, skipped = await self._process_comment(
+                current_comment,
                 post,
                 profile,
                 monitor_id,
                 facebook=facebook,
                 ai=ai,
-                depth=1,
+                depth=depth,
                 max_depth=max_depth,
+                parent_message=parent_msg,
+                canonical_page_id=canonical_page_id
             )
-            replied_count += count
-            skipped_count += skipped
+            stats["replied"] += replied
+            stats["skipped"] += skipped
 
-            # depth 2: direct replies
-            if max_depth >= 2:
-                for reply in comment.get("replies", {}).get("data", []):
-                    count, skipped = await self._process_comment(
-                        reply,
-                        post,
-                        profile,
-                        monitor_id,
-                        facebook=facebook,
-                        ai=ai,
-                        depth=2,
-                        max_depth=max_depth,
-                        parent_message=comment.get("message", ""),
-                    )
-                    replied_count += count
-                    skipped_count += skipped
+            # 2. 如果深度未达上限，处理子回复
+            if depth < max_depth:
+                replies = current_comment.get("replies", {}).get("data", [])
+                for reply in replies:
+                    await _process_recursive(reply, depth + 1, current_comment.get("message", ""))
 
-        status_msg = f"OK: 已回复 {replied_count} 条，已跳过 {skipped_count} 条"
+        # 开始遍历顶层评论
+        for comment in comments:
+            await _process_recursive(comment, 1)
+
+        status_msg = f"OK: 已回复 {stats['replied']} 条，已跳过 {stats['skipped']} 条"
         finished_at = datetime.now().astimezone()
         update_monitor(
             monitor_id,
@@ -179,7 +177,7 @@ class MonitorService:
             monitor_id,
             status_msg,
         )
-        return {"replied": replied_count, "skipped": skipped_count}
+        return stats
 
     async def _process_comment(
         self,
@@ -193,6 +191,7 @@ class MonitorService:
         depth: int,
         max_depth: int,
         parent_message: str = "",
+        canonical_page_id: str = ""
     ) -> tuple[int, int]:
         if depth > max_depth:
             return 0, 0
@@ -201,47 +200,47 @@ class MonitorService:
         if not comment_id:
             return 0, 0
 
+        # 1. 检查评论作者是否是主页自己 (防止自我回复)
+        author = comment.get("from", {})
+        author_id = str(author.get("id") or "")
+        author_name = author.get("name", "")
+        page_name = profile.get("name", "")
+
+        if author_id and canonical_page_id and author_id == canonical_page_id:
+            return 0, 0 # 是主页发的评论，不计入统计，直接跳过
+        
+        # 兜底：如果 ID 匹配不到，匹配名字 (防止某些 API 版本不返回 ID)
+        if author_name and page_name and author_name == page_name:
+            return 0, 0
+
+        # 2. 检查主页是否已经回复过这条评论
         if has_replied(comment_id):
-            page_id = str(profile.get("page_id") or post.get("page_id") or facebook.config.page_id or "")
             still_has_page_reply = await self._comment_has_page_reply(
                 comment=comment,
-                page_id=page_id,
+                page_id=canonical_page_id,
                 facebook=facebook,
             )
             if still_has_page_reply:
-                return 0, 1  # already replied, skip
+                return 0, 1  # 已经回复过了，跳过
 
-            # Local dedupe record is stale (reply was deleted manually), allow re-reply.
+            # 本地记录已过期（回复可能被手动删了），清除记录允许重新回复
             try:
                 unmark_replied(comment_id)
-            except Exception as exc:
-                logger.warning(
-                    "[monitor] stale replied record cleanup failed comment=%s: %s",
-                    comment_id,
-                    exc,
-                )
+            except Exception:
                 return 0, 1
 
-        author = comment.get("from", {})
-        author_id = str(author.get("id") or "")
-        author_name = author.get("name", "匿名用户")
-        
-        # 获取当前主页的规范化 ID 以进行比对
-        page_id = str(profile.get("page_id") or post.get("page_id") or facebook.config.page_id or "")
-        
-        # 核心修复：如果评论作者就是主页自己，跳过回复
-        if author_id and page_id and author_id == page_id:
-            logger.debug("[monitor] skip replying to self-comment=%s author=%s", comment_id, author_name)
+        # 再次确认远程状态 (双重保险)
+        if await self._comment_has_page_reply(comment=comment, page_id=canonical_page_id, facebook=facebook):
             return 0, 1
 
+        # 3. 生成并发送回复
         comment_message = comment.get("message", "")
-
         try:
             reply_message = await ai.generate_reply(
-                page_name=profile.get("name", ""),
+                page_name=page_name,
                 post_message=post.get("message", ""),
                 comment_message=comment_message,
-                comment_author=author_name,
+                comment_author=author_name or "匿名用户",
                 parent_comment_message=parent_message,
             )
             await facebook.send_reply(comment_id, reply_message)
@@ -249,22 +248,13 @@ class MonitorService:
             logger.warning("[monitor] failed to reply to comment=%s: %s", comment_id, exc)
             return 0, 0
 
+        # 4. 记录已回复
         try:
             mark_replied(comment_id, post.get("id", ""), monitor_id, reply_message)
         except Exception as exc:
-            # Reply was already sent successfully; keep count as replied to avoid misleading stats.
-            logger.warning(
-                "[monitor] reply sent but failed to persist replied record comment=%s: %s",
-                comment_id,
-                exc,
-            )
+            logger.warning("[monitor] reply sent but failed to persist record: %s", exc)
 
-        logger.info(
-            "[monitor] replied to comment=%s author=%s depth=%s",
-            comment_id,
-            author_name,
-            depth,
-        )
+        logger.info("[monitor] replied to comment=%s author=%s depth=%s", comment_id, author_name, depth)
         return 1, 0
 
     async def _comment_has_page_reply(
