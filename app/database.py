@@ -110,7 +110,6 @@ CREATE TABLE IF NOT EXISTS model_configs (
     ai_api_base_url TEXT NOT NULL DEFAULT '',
     ai_api_key TEXT NOT NULL DEFAULT '',
     ai_model TEXT NOT NULL DEFAULT '',
-    ai_system_prompt TEXT NOT NULL DEFAULT '',
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -206,14 +205,13 @@ def _seed_settings_from_legacy_json_if_needed() -> None:
         connection.execute(
             """
             INSERT INTO model_configs (
-                id, ai_api_base_url, ai_api_key, ai_model, ai_system_prompt, updated_at
+                id, ai_api_base_url, ai_api_key, ai_model, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 ai_api_base_url = excluded.ai_api_base_url,
                 ai_api_key = excluded.ai_api_key,
                 ai_model = excluded.ai_model,
-                ai_system_prompt = excluded.ai_system_prompt,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
@@ -221,12 +219,6 @@ def _seed_settings_from_legacy_json_if_needed() -> None:
                 str(raw.get("AI_API_BASE_URL", "")),
                 str(raw.get("AI_API_KEY", "")),
                 str(raw.get("AI_MODEL", "")),
-                str(
-                    raw.get(
-                        "AI_SYSTEM_PROMPT",
-                        "你是一个专业的 Facebook 主页运营助手。请基于用户评论内容、帖子内容和主页身份，生成自然、礼貌、简洁、适合公开发布的回复。",
-                    )
-                ),
             ),
         )
 

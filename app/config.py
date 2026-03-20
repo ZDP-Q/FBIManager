@@ -6,10 +6,6 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_FILE = PROJECT_ROOT / "config.json"
-DEFAULT_AI_SYSTEM_PROMPT = (
-    "你是一个专业的 Facebook 主页运营助手。请基于用户评论内容、帖子内容和主页身份，"
-    "生成自然、礼貌、简洁、适合公开发布的回复。"
-)
 
 
 @dataclass(slots=True)
@@ -23,7 +19,6 @@ class AppConfig:
     ai_api_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
-    ai_system_prompt: str = DEFAULT_AI_SYSTEM_PROMPT
 
     @property
     def graph_base_url(self) -> str:
@@ -72,5 +67,4 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         ai_api_base_url=str(model.get("ai_api_base_url", "")),
         ai_api_key=str(model.get("ai_api_key", "")),
         ai_model=str(model.get("ai_model", "")),
-        ai_system_prompt=str(model.get("ai_system_prompt", DEFAULT_AI_SYSTEM_PROMPT) or DEFAULT_AI_SYSTEM_PROMPT),
     )

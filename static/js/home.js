@@ -104,7 +104,7 @@ async function loadSettings() {
     document.getElementById('model-base-url').value = model.ai_api_base_url || '';
     document.getElementById('model-api-key').value = model.ai_api_key || '';
     document.getElementById('model-name').value = model.ai_model || '';
-    document.getElementById('model-system-prompt').value = model.ai_system_prompt || '';
+
 }
 
 async function saveAccount() {
@@ -261,7 +261,6 @@ document.getElementById('btn-model-save')?.addEventListener('click', async () =>
         ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
         ai_api_key: (document.getElementById('model-api-key')?.value || '').trim(),
         ai_model: (document.getElementById('model-name')?.value || '').trim(),
-        ai_system_prompt: (document.getElementById('model-system-prompt')?.value || '').trim(),
     };
 
     try {
@@ -282,7 +281,6 @@ document.getElementById('btn-model-test')?.addEventListener('click', async () =>
         ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
         ai_api_key: (document.getElementById('model-api-key')?.value || '').trim(),
         ai_model: (document.getElementById('model-name')?.value || '').trim(),
-        ai_system_prompt: (document.getElementById('model-system-prompt')?.value || '').trim(),
     };
 
     const btn = document.getElementById('btn-model-test');

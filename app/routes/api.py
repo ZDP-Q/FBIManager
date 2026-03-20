@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.registry import get_monitor_service
-from app.config import DEFAULT_AI_SYSTEM_PROMPT, load_config
+from app.config import load_config
 from app.repositories import (
     create_account,
     create_monitor,
@@ -68,7 +68,6 @@ class ModelConfigPayload(BaseModel):
     ai_api_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
-    ai_system_prompt: str = DEFAULT_AI_SYSTEM_PROMPT
 
 
 class ChangePasswordPayload(BaseModel):
@@ -92,7 +91,6 @@ async def get_settings():
         "ai_api_base_url": "",
         "ai_api_key": "",
         "ai_model": "",
-        "ai_system_prompt": DEFAULT_AI_SYSTEM_PROMPT,
     }
     return {
         "accounts": accounts,
@@ -173,7 +171,6 @@ async def update_model_api(payload: ModelConfigPayload):
         ai_api_base_url=payload.ai_api_base_url.strip(),
         ai_api_key=payload.ai_api_key.strip(),
         ai_model=payload.ai_model.strip(),
-        ai_system_prompt=payload.ai_system_prompt.strip() or DEFAULT_AI_SYSTEM_PROMPT,
     )
     return {"status": "success"}
 
@@ -183,10 +180,14 @@ async def test_model_api(payload: ModelConfigPayload):
     from app.config import AppConfig
     # Use the payload values instead of saved config for testing
     temp_config = AppConfig(
+        account_id=0,
+        account_name="",
+        page_access_token="",
+        verify_token="",
+        page_id="",
         ai_api_base_url=payload.ai_api_base_url.strip(),
         ai_api_key=payload.ai_api_key.strip(),
         ai_model=payload.ai_model.strip(),
-        ai_system_prompt=payload.ai_system_prompt.strip(),
         # Other fields don't matter for this test
     )
     ai_service = AIReplyService(temp_config)

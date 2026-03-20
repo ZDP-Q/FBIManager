@@ -139,7 +139,7 @@ def get_model_config() -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, ai_api_base_url, ai_api_key, ai_model, ai_system_prompt, updated_at
+            SELECT id, ai_api_base_url, ai_api_key, ai_model, updated_at
             FROM model_configs
             WHERE id = 1
             """
@@ -147,20 +147,19 @@ def get_model_config() -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str, ai_system_prompt: str) -> None:
+def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str) -> None:
     with get_connection() as connection:
         connection.execute(
             """
-            INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, ai_system_prompt, updated_at)
-            VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, updated_at)
+            VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 ai_api_base_url = excluded.ai_api_base_url,
                 ai_api_key = excluded.ai_api_key,
                 ai_model = excluded.ai_model,
-                ai_system_prompt = excluded.ai_system_prompt,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (ai_api_base_url, ai_api_key, ai_model, ai_system_prompt),
+            (ai_api_base_url, ai_api_key, ai_model),
         )
 
 
