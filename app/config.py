@@ -57,6 +57,24 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         raise RuntimeError("未找到可用账号配置，请先在 Web 页面保存账号配置")
 
     model = get_model_config() or {}
+    prompt_template = str(model.get("prompt_template", "") or "").strip()
+    
+    # Validation and fallback for prompt_template
+    prompts_dir = PROJECT_ROOT / "prompts"
+    if prompt_template:
+        if not (prompts_dir / prompt_template).exists():
+            prompt_template = ""
+            
+    if not prompt_template:
+        # Try to pick the first .j2 file in prompts directory
+        if prompts_dir.exists():
+            import os
+            j2_files = sorted([f for f in os.listdir(prompts_dir) if f.endswith(".j2")])
+            if j2_files:
+                prompt_template = j2_files[0]
+    
+    if not prompt_template:
+        prompt_template = "reply_prompt.j2"
 
     return AppConfig(
         account_id=int(account["id"]),
@@ -68,5 +86,5 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         ai_api_base_url=str(model.get("ai_api_base_url", "")),
         ai_api_key=str(model.get("ai_api_key", "")),
         ai_model=str(model.get("ai_model", "")),
-        prompt_template=str(model.get("prompt_template", "reply_prompt.j2") or "reply_prompt.j2"),
+        prompt_template=prompt_template,
     )

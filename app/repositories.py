@@ -175,7 +175,7 @@ def get_model_config() -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, ai_api_base_url, ai_api_key, ai_model, updated_at
+            SELECT id, ai_api_base_url, ai_api_key, ai_model, prompt_template, updated_at
             FROM model_configs
             WHERE id = 1
             """
