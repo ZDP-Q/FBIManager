@@ -1,5 +1,7 @@
 # FBIManager (Facebook Interaction Manager)
 
+[中文版本 (Chinese Version)](./README.zh-CN.md)
+
 A FastAPI-based Facebook interaction management system integrated with AI automated replies and multi-account monitoring.
 
 ### Core Features
@@ -16,8 +18,9 @@ A FastAPI-based Facebook interaction management system integrated with AI automa
   - **Smart Re-generation**: Detects if an AI reply was manually deleted on the Facebook web interface and allows the system to re-generate or re-send the reply, ensuring interaction integrity.
 - **Management Capabilities**:
   - **Multi-Account Support**: Flexible switching between monitoring and reply tasks for different Page IDs.
-  - **Configuration Decoupling**: Account settings (Access Tokens, etc.) and model configurations (OpenAI-compatible APIs, Prompts) are managed independently and take effect immediately.
+  - **Configuration Decoupling**: Account settings (Access Tokens, etc.) and model configurations are managed independently and take effect immediately.
   - **Visual Dashboard**: Provides intuitive views for comment management, post monitoring, and synchronization status.
+  - **Connectivity Test**: Built-in "Test Configuration" button to verify LLM API connectivity and model settings before saving.
 
 ### Project Architecture
 
@@ -47,12 +50,18 @@ A FastAPI-based Facebook interaction management system integrated with AI automa
    ```
    Access `http://127.0.0.1:8000` and log in with your administrator account.
 
+### Docker Deployment
+
+A pre-configured Docker setup is available in the `docker/` directory:
+- The `ADMIN_PASSWORD` is centrally managed in `docker/start.sh` (must be a strong password of 16+ characters).
+- Persistent data and logs are stored in host directories via volumes.
+
 ### Configuration Guide
 
 Manage settings via the **Configuration Panel** or **Security Settings** on the home page:
-- **Security Settings**: Change the administrator's current password (must meet the 16-character strong password requirement).
+- **Security Settings**: Change the administrator's current password.
 - **Account Configuration**: Set `PAGE_ACCESS_TOKEN`, `PAGE_ID`, and `API_VERSION` (v25.0 recommended).
-- **Model Configuration**: Configure the API endpoint, API key, model name, and the AI System Prompt.
+- **Model Configuration**: Configure the API endpoint, API key, model name, and the AI System Prompt. Use the **Test Configuration** button to verify connectivity.
 
 ### Important Notes
 
