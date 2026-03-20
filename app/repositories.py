@@ -317,18 +317,31 @@ def _insert_comment(connection, post_id: str, parent_comment_id: str | None, com
         _insert_comment(connection, post_id, comment["id"], reply)
 
 
-def list_posts(page_id: str | None = None) -> list[dict[str, Any]]:
+def list_posts(page_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
     with get_connection() as connection:
         if page_id:
-            rows = connection.execute(
-                "SELECT id, page_id, message, created_time, full_picture, permalink_url, type, synced_at FROM posts WHERE page_id = ? ORDER BY created_time DESC, id DESC",
-                (page_id,),
-            ).fetchall()
+            query = "SELECT id, page_id, message, created_time, full_picture, permalink_url, type, raw_json, synced_at FROM posts WHERE page_id = ? ORDER BY created_time DESC, id DESC"
+            params = [page_id]
         else:
-            rows = connection.execute(
-                "SELECT id, page_id, message, created_time, full_picture, permalink_url, type, synced_at FROM posts ORDER BY created_time DESC, id DESC"
-            ).fetchall()
-    return [dict(row) for row in rows]
+            query = "SELECT id, page_id, message, created_time, full_picture, permalink_url, type, raw_json, synced_at FROM posts ORDER BY created_time DESC, id DESC"
+            params = []
+            
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+            
+        rows = connection.execute(query, tuple(params)).fetchall()
+        
+    results = []
+    for row in rows:
+        d = dict(row)
+        try:
+            raw = json.loads(d.get("raw_json", "{}"))
+            d["video_id"] = raw.get("video_id", "")
+        except Exception:
+            d["video_id"] = ""
+        results.append(d)
+    return results
 
 
 def get_post(post_id: str) -> dict[str, Any] | None:

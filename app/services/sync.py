@@ -127,16 +127,13 @@ class SyncService:
         except Exception as exc:
             logger.warning("[insights] page insights failed: %s", exc)
 
-        posts = list_posts(page_id=canonical_page_id)
+        posts = list_posts(page_id=canonical_page_id, limit=20)
         post_synced = 0
         for post in posts:
             post_id = post["id"]
-            post_type = post.get("type", "") or ""
+            detected_type = post.get("type", "")
+            video_id = post.get("video_id", "")
             try:
-                media_info = await self.facebook.fetch_post_media_info(post_id)
-                detected_type = media_info.get("type", "") or post_type
-                video_id = media_info.get("target_id", "")
-
                 if "video" in detected_type and video_id:
                     data = await self.facebook.fetch_video_insights(video_id)
                     upsert_insights(post_id, "video", data)
@@ -147,7 +144,7 @@ class SyncService:
                     logger.info("[insights] post insights synced for %s: %s metrics", post_id, len(data))
                 post_synced += 1
             except Exception as exc:
-                logger.warning("[insights] insights failed for post %s (%s): %s", post_id, post_type, exc)
+                logger.warning("[insights] insights failed for post %s (%s): %s", post_id, detected_type, exc)
 
         logger.info("[insights] finished: page_metrics=%s posts_synced=%s", page_metrics, post_synced)
         return {"page_metrics": page_metrics, "posts_synced": post_synced}

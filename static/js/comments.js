@@ -12,7 +12,7 @@ const METRIC_LABELS = {
     page_total_media_view_unique: '主页媒体独立浏览',
     page_engaged_users: '互动用户数',
     page_views_total: '主页浏览',
-    page_actions_post_reactions_total: '主页发帖被回应总数',
+    page_actions_post_reactions_total: '发帖被回应数',
     post_impressions: '帖子触达',
     post_media_view: '帖子媒体浏览',
     post_total_media_view_unique: '帖子媒体独立浏览',
