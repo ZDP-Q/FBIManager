@@ -164,6 +164,10 @@ def bulk_import_accounts(accounts: list[dict[str, Any]]) -> int:
                 ),
             )
             count += 1
+        
+        if count > 0:
+            connection.execute("DELETE FROM account_configs WHERE name = '默认账号' OR page_id = 'default-page'")
+            
     return count
 
 

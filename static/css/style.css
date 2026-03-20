@@ -339,6 +339,8 @@ body.fixed-layout .page-area { height: 100%; }
     letter-spacing: 0.06em;
     color: var(--muted);
     margin-bottom: 4px;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .stat-value { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.1; }
@@ -639,7 +641,7 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 .ins-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; }
-.ins-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 2px; }
+.ins-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 2px; overflow-wrap: break-word; word-break: break-word; }
 .ins-value { font-size: 18px; font-weight: 700; color: var(--text); }
 
 /* Comment list */

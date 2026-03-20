@@ -6,6 +6,7 @@ const METRIC_LABELS = {
     page_total_media_view_unique: '主页媒体独立浏览',
     page_engaged_users: '互动用户数 (28天)',
     page_views_total: '主页浏览量 (28天)',
+    page_actions_post_reactions_total: '主页发帖被回应总数 (28天)',
     page_post_engagements: '帖子互动',
     post_impressions: '帖子触达',
     post_media_view: '帖子媒体浏览',

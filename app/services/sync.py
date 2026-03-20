@@ -18,6 +18,10 @@ class SyncService:
         self.config = config
 
     async def sync_all(self, *, post_limit: int = 20, since: str = "", until: str = "", all_posts: bool = False) -> dict[str, Any]:
+        if self.config.page_id == "default-page":
+            logger.warning("[sync] Skipping sync for 'default-page' as it is a placeholder.")
+            return {"status": "skipped", "reason": "default-page"}
+        
         logger.info("[sync] start syncing page profile")
         profile = await self.facebook.fetch_page_profile()
         upsert_page_profile(profile)
@@ -88,6 +92,10 @@ class SyncService:
         }
 
     async def sync_post(self, post_id: str) -> dict[str, Any]:
+        if self.config.page_id == "default-page":
+            logger.warning("[sync_post] Skipping sync for 'default-page' as it is a placeholder.")
+            return {"status": "skipped", "reason": "default-page"}
+        
         logger.info("[sync] start syncing single post=%s", post_id)
         profile = await self.facebook.fetch_page_profile()
         upsert_page_profile(profile)
