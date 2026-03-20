@@ -223,7 +223,17 @@ class MonitorService:
                 return 0, 1
 
         author = comment.get("from", {})
+        author_id = str(author.get("id") or "")
         author_name = author.get("name", "匿名用户")
+        
+        # 获取当前主页的规范化 ID 以进行比对
+        page_id = str(profile.get("page_id") or post.get("page_id") or facebook.config.page_id or "")
+        
+        # 核心修复：如果评论作者就是主页自己，跳过回复
+        if author_id and page_id and author_id == page_id:
+            logger.debug("[monitor] skip replying to self-comment=%s author=%s", comment_id, author_name)
+            return 0, 1
+
         comment_message = comment.get("message", "")
 
         try:
