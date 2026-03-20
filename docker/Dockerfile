@@ -37,10 +37,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app
 
 # 确保启动脚本有执行权限
-RUN chmod +x docker/start.sh
+RUN chmod +x scripts/start.sh
 
 # 暴露端口
 EXPOSE 8000
 
 # 使用 JSON 数组格式的 CMD 以确保能正确响应信号
-CMD ["./docker/start.sh"]
+CMD ["./scripts/start.sh"]
