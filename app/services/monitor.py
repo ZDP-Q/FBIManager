@@ -186,12 +186,9 @@ class MonitorService:
         facebook: FacebookService,
         ai: AIReplyService,
         depth: int,
-        max_depth: int,
         parent_message: str = "",
         canonical_page_id: str = ""
     ) -> tuple[int, int]:
-        if depth > max_depth:
-            return 0, 0
 
         comment_id = comment.get("id", "")
         if not comment_id:
