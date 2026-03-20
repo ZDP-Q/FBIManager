@@ -1,4 +1,4 @@
-# Facebook Interaction Manager (FBManager)
+# FBIManager (Facebook Interaction Manager)
 
 一个基于 FastAPI 的 Facebook 互动管理系统，集成 AI 自动回复与多账号监控。
 

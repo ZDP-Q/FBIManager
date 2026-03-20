@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         lifespan=lifespan,
-        title="Facebook Interaction Manager",
+        title="FBIManager",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
