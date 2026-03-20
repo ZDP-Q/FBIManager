@@ -90,6 +90,10 @@ async def comments_page(request: Request):
     )
 
 
+@router.get("/personas", response_class=HTMLResponse)
+async def personas_page(request: Request):
+    return templates.TemplateResponse("personas.html", {"request": request})
+
 @router.get("/monitors", response_class=HTMLResponse)
 async def monitors_page(request: Request):
     config = load_config()

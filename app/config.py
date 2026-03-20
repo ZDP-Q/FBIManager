@@ -19,6 +19,7 @@ class AppConfig:
     ai_api_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
+    prompt_template: str = "reply_prompt.j2"
 
     @property
     def graph_base_url(self) -> str:
@@ -67,4 +68,5 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         ai_api_base_url=str(model.get("ai_api_base_url", "")),
         ai_api_key=str(model.get("ai_api_key", "")),
         ai_model=str(model.get("ai_model", "")),
+        prompt_template=str(model.get("prompt_template", "reply_prompt.j2") or "reply_prompt.j2"),
     )

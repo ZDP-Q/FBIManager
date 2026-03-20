@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS model_configs (
     ai_api_base_url TEXT NOT NULL DEFAULT '',
     ai_api_key TEXT NOT NULL DEFAULT '',
     ai_model TEXT NOT NULL DEFAULT '',
+    prompt_template TEXT NOT NULL DEFAULT 'reply_prompt.j2',
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -164,6 +165,11 @@ def init_db() -> None:
             connection.execute("ALTER TABLE posts ADD COLUMN type TEXT NOT NULL DEFAULT ''")
         except Exception:
             pass  # column already exists
+        
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN prompt_template TEXT NOT NULL DEFAULT 'reply_prompt.j2'")
+        except Exception:
+            pass
 
     _seed_settings_from_legacy_json_if_needed()
     _seed_admin_auth_if_needed()

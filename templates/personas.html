@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}人设管理 - FacebookMsg{% endblock %}
+{% block nav_personas %}active{% endblock %}
+
+{% block content %}
+<div class="header">
+    <div class="header-left">
+        <h2>人设管理</h2>
+        <p class="subtitle">选择用于监控回复的 AI 提示词模板（仅支持 .j2 格式）。需在服务器的 prompts 目录中放入文件后方可读取。</p>
+    </div>
+</div>
+
+<div id="personas-alert" class="alert"></div>
+
+<div class="content-section">
+    <div class="section-title">可用人设列表</div>
+    <div class="table-wrap">
+        <table class="table" id="personas-table">
+            <thead>
+                <tr>
+                    <th>模板文件名</th>
+                    <th>当前状态</th>
+                    <th style="width: 150px;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="personas-body">
+                <tr><td colspan="3" class="text-muted" style="text-align:center;">正在加载...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 模态框：预览 -->
+<div id="modal-preview" class="modal-backdrop">
+    <div class="modal" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 class="modal-title">模板预览：<span id="preview-filename"></span></h3>
+            <button class="btn btn-ghost btn-icon" onclick="closeModal('modal-preview')" aria-label="关闭">✕</button>
+        </div>
+        <div class="modal-body">
+            <pre id="preview-content" style="background: var(--bg); padding: 16px; border-radius: var(--radius); overflow-x: auto; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;"></pre>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal('modal-preview')">关闭</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/personas.js"></script>
+{% endblock %}

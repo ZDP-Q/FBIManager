@@ -183,19 +183,20 @@ def get_model_config() -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str) -> None:
+def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str, prompt_template: str = 'reply_prompt.j2') -> None:
     with get_connection() as connection:
         connection.execute(
             """
-            INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, updated_at)
-            VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, prompt_template, updated_at)
+            VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 ai_api_base_url = excluded.ai_api_base_url,
                 ai_api_key = excluded.ai_api_key,
                 ai_model = excluded.ai_model,
+                prompt_template = excluded.prompt_template,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (ai_api_base_url, ai_api_key, ai_model),
+            (ai_api_base_url, ai_api_key, ai_model, prompt_template),
         )
 
 

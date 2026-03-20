@@ -66,6 +66,7 @@ class ModelConfigPayload(BaseModel):
     ai_api_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
+    prompt_template: str = "reply_prompt.j2"
 
 
 class ChangePasswordPayload(BaseModel):
@@ -195,6 +196,7 @@ async def update_model_api(payload: ModelConfigPayload):
         ai_api_base_url=payload.ai_api_base_url.strip(),
         ai_api_key=payload.ai_api_key.strip(),
         ai_model=payload.ai_model.strip(),
+        prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
     )
     return {"status": "success"}
 
@@ -212,6 +214,7 @@ async def test_model_api(payload: ModelConfigPayload):
         ai_api_base_url=payload.ai_api_base_url.strip(),
         ai_api_key=payload.ai_api_key.strip(),
         ai_model=payload.ai_model.strip(),
+        prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
         # Other fields don't matter for this test
     )
     ai_service = AIReplyService(temp_config)
@@ -383,6 +386,49 @@ async def remove_comment(comment_id: str):
 # ---------------------------------------------------------------------------
 # Posts (for monitor creation form)
 # ---------------------------------------------------------------------------
+
+@router.get("/prompts")
+async def list_prompts_api():
+    from app.config import PROJECT_ROOT
+    import os
+    prompts_dir = PROJECT_ROOT / "prompts"
+    if not prompts_dir.exists():
+        return {"data": []}
+    
+    config = load_config()
+    prompts = []
+    
+    for filename in os.listdir(prompts_dir):
+        if filename.endswith(".j2"):
+            file_path = prompts_dir / filename
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                prompts.append({
+                    "filename": filename,
+                    "content": content,
+                    "is_active": filename == config.prompt_template
+                })
+            except Exception:
+                pass
+            
+    return {"data": prompts}
+
+class ActivatePromptPayload(BaseModel):
+    filename: str
+
+@router.post("/prompts/activate")
+async def activate_prompt_api(payload: ActivatePromptPayload):
+    from app.repositories import get_model_config, upsert_model_config
+    model = get_model_config() or {}
+    
+    upsert_model_config(
+        ai_api_base_url=str(model.get("ai_api_base_url", "")),
+        ai_api_key=str(model.get("ai_api_key", "")),
+        ai_model=str(model.get("ai_model", "")),
+        prompt_template=payload.filename.strip()
+    )
+    return {"status": "success"}
 
 @router.get("/posts")
 async def list_posts_api():

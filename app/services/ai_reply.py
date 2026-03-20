@@ -100,7 +100,6 @@ class AIReplyService:
         comment_message: str,
         comment_author: str,
         parent_comment_message: str = "",
-        template_name: str = "reply_prompt.j2",
     ) -> str:
         if not self.config.ai_enabled:
             raise RuntimeError("AI 配置不完整，请先在 config.json 中填写 AI_API_BASE_URL、AI_API_KEY 和 AI_MODEL")
@@ -111,7 +110,7 @@ class AIReplyService:
             comment_message=comment_message,
             author_name=comment_author,
             parent_comment_message=parent_comment_message,
-            template_name=template_name,
+            template_name=self.config.prompt_template,
         )
 
         payload_base: dict[str, Any] = {
