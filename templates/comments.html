@@ -26,10 +26,22 @@
                 <div class="post-card-header" onclick="togglePost(this)">
                     <span class="post-expand-icon">▶</span>
                     <div class="post-meta">
-                        <div class="post-excerpt">{{ post.message or '（无内容）' }}</div>
+                        <div class="post-excerpt" style="display: flex; align-items: center; gap: 8px;">
+                            {% if post.type == 'video' %}
+                            <span class="badge badge-info" style="font-size: 10px; padding: 1px 4px;">🎥 视频</span>
+                            {% elif post.type == 'photo' %}
+                            <span class="badge badge-success" style="font-size: 10px; padding: 1px 4px;">📷 图片</span>
+                            {% elif post.type == 'status' %}
+                            <span class="badge badge-neutral" style="font-size: 10px; padding: 1px 4px;">📝 状态</span>
+                            {% endif %}
+                            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">{{ post.message or '（无内容）' }}</span>
+                        </div>
                         <div class="post-info-row">
-                            <span>{{ post.created_time or '-' }}</span>
-                            <span>{{ post.comments|length }} 条评论</span>
+                            <span class="text-xs fw-600">{{ post.created_time or '-' }}</span>
+                            <span class="text-xs">{{ post.comments|length }} 条评论</span>
+                            <div id="quick-stats-{{ post.id }}" style="display: flex; gap: 8px; margin-left: 4px;">
+                                <!-- JS will inject quick stats here -->
+                            </div>
                             {% if post.permalink_url %}
                             <a href="{{ post.permalink_url }}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">查看原帖 ↗</a>
                             {% endif %}

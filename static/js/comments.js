@@ -1,5 +1,6 @@
 const alertEl = document.getElementById('comments-alert');
 const insightsLoaded = new Set();
+const insightsCache = new Map();
 
 function showAlert(msg, type = 'info') {
     alertEl.textContent = msg;
@@ -13,10 +14,11 @@ const METRIC_LABELS = {
     page_engaged_users: '互动用户数',
     page_views_total: '主页浏览',
     page_actions_post_reactions_total: '发帖被回应数',
-    post_impressions: '帖子触达',
+    post_impressions: '帖子曝光',
+    post_impressions_unique: '触及人数',
     post_media_view: '帖子媒体浏览',
     post_total_media_view_unique: '帖子媒体独立浏览',
-    post_engaged_users: '帖子互动用户',
+    post_engaged_users: '互动人数',
     post_clicks: '点击数',
     post_reactions_like_total: '点赞数',
     total_video_views: '视频播放',
@@ -29,6 +31,60 @@ function fmtNum(v) {
     if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
     if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
     return v.toLocaleString('zh-CN');
+}
+
+async function fetchInsights(postId) {
+    if (insightsCache.has(postId)) return insightsCache.get(postId);
+    const r = await fetch(`/api/insights/${encodeURIComponent(postId)}`);
+    if (!r.ok) throw new Error('获取失败');
+    const result = await r.json();
+    const metrics = result.data || [];
+    insightsCache.set(postId, metrics);
+    return metrics;
+}
+
+function renderQuickStats(postId, metrics) {
+    const el = document.getElementById(`quick-stats-${postId}`);
+    if (!el || !metrics.length) return;
+
+    const findMetric = (keys) => {
+        for (const k of keys) {
+            const m = metrics.find(x => x.name === k);
+            if (m && m.values?.[0]) return m.values[0].value;
+        }
+        return null;
+    };
+
+    // Determine core metrics based on post type (handled by looking at common metrics)
+    const reach = findMetric(['post_impressions_unique', 'post_impressions']);
+    const engagement = findMetric(['post_engaged_users']);
+    const views = findMetric(['total_video_views']);
+
+    let html = '';
+    if (reach !== null) html += `<span class="badge badge-neutral" style="font-size:10px; opacity:0.8">👥 ${fmtNum(reach)} 触及</span>`;
+    if (engagement !== null) html += `<span class="badge badge-neutral" style="font-size:10px; opacity:0.8">🔥 ${fmtNum(engagement)} 互动</span>`;
+    if (views !== null) html += `<span class="badge badge-neutral" style="font-size:10px; opacity:0.8">▶ ${fmtNum(views)} 播放</span>`;
+    
+    el.innerHTML = html;
+}
+
+async function loadAllQuickStats() {
+    const cards = document.querySelectorAll('.post-card');
+    const ids = Array.from(cards).map(c => c.dataset.postId);
+    
+    // Load in small batches to not overwhelm the UI/network
+    const batchSize = 4;
+    for (let i = 0; i < ids.length; i += batchSize) {
+        const batch = ids.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (id) => {
+            try {
+                const metrics = await fetchInsights(id);
+                renderQuickStats(id, metrics);
+            } catch (e) {
+                console.warn(`Failed to load quick stats for ${id}`, e);
+            }
+        }));
+    }
 }
 
 /* Toggle post expand */
@@ -45,14 +101,9 @@ async function toggleInsights(postId, btn) {
         return;
     }
     panel.classList.add('visible');
-    if (insightsLoaded.has(postId)) return;
-    insightsLoaded.add(postId);
     const grid = document.getElementById(`ins-grid-${postId}`);
     try {
-        const r = await fetch(`/api/insights/${encodeURIComponent(postId)}`);
-        if (!r.ok) throw new Error('获取失败');
-        const result = await r.json();
-        const metrics = result.data || [];
+        const metrics = await fetchInsights(postId);
         if (!metrics.length) {
             grid.innerHTML = '<div class="ins-card"><div class="ins-label">暂无数据</div><div class="ins-value">-</div></div>';
             return;
@@ -65,9 +116,12 @@ async function toggleInsights(postId, btn) {
         }).join('');
     } catch (e) {
         grid.innerHTML = `<div class="ins-card"><div class="ins-label text-danger">${e.message}</div><div class="ins-value">-</div></div>`;
-        insightsLoaded.delete(postId);
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadAllQuickStats();
+});
 
 /* Reply form */
 function toggleReplyForm(commentId) {

@@ -128,23 +128,31 @@ class SyncService:
             logger.warning("[insights] page insights failed: %s", exc)
 
         posts = list_posts(page_id=canonical_page_id, limit=20)
-        post_synced = 0
-        for post in posts:
+        
+        async def _sync_single_post_insights(post: dict[str, Any]) -> bool:
             post_id = post["id"]
             detected_type = post.get("type", "")
+            # Try to get video_id from raw_json if not in direct fields
             video_id = post.get("video_id", "")
             try:
                 if "video" in detected_type and video_id:
                     data = await self.facebook.fetch_video_insights(video_id)
                     upsert_insights(post_id, "video", data)
-                    logger.info("[insights] video insights synced for post=%s video=%s: %s metrics", post_id, video_id, len(data))
+                    logger.info("[insights] video insights synced for post=%s video=%s", post_id, video_id)
                 else:
                     data = await self.facebook.fetch_post_insights(post_id)
                     upsert_insights(post_id, "post", data)
-                    logger.info("[insights] post insights synced for %s: %s metrics", post_id, len(data))
-                post_synced += 1
+                    logger.info("[insights] post insights synced for %s", post_id)
+                return True
             except Exception as exc:
-                logger.warning("[insights] insights failed for post %s (%s): %s", post_id, detected_type, exc)
+                logger.warning("[insights] insights failed for post %s: %s", post_id, exc)
+                return False
+
+        results = await self._run_in_batches(
+            [_sync_single_post_insights(p) for p in posts],
+            batch_size=5,
+        )
+        post_synced = sum(1 for r in results if r)
 
         logger.info("[insights] finished: page_metrics=%s posts_synced=%s", page_metrics, post_synced)
         return {"page_metrics": page_metrics, "posts_synced": post_synced}
