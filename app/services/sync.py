@@ -17,7 +17,7 @@ class SyncService:
         self.facebook = FacebookService(config)
         self.config = config
 
-    async def sync_all(self, *, post_limit: int = 20, since: str = "", until: str = "") -> dict[str, Any]:
+    async def sync_all(self, *, post_limit: int = 20, since: str = "", until: str = "", all_posts: bool = False) -> dict[str, Any]:
         logger.info("[sync] start syncing page profile")
         profile = await self.facebook.fetch_page_profile()
         upsert_page_profile(profile)
@@ -27,11 +27,22 @@ class SyncService:
         logger.info("[sync] page profile synced: page_id=%s (canonical=%s) name=%s", 
                     self.config.page_id, canonical_page_id, profile.get("name", ""))
 
-        logger.info("[sync] start syncing posts (limit=%s, since=%s, until=%s)", post_limit, since or "auto", until or "auto")
-        # 显式传递 canonical_page_id，确保抓取时使用的是数字 ID 而非可能存在的 Username
-        result = await self.facebook.fetch_posts(limit=post_limit, since=since, until=until, page_id=canonical_page_id)
-        raw_posts = result.get("data", [])
-        next_cursor = result.get("paging", {}).get("cursors", {}).get("after", "")
+        normalized_all_posts = all_posts or post_limit <= 0
+        logger.info(
+            "[sync] start syncing posts (limit=%s, all_posts=%s, since=%s, until=%s)",
+            post_limit,
+            normalized_all_posts,
+            since or "auto",
+            until or "auto",
+        )
+
+        raw_posts, next_cursor = await self._fetch_posts_for_sync(
+            canonical_page_id=canonical_page_id,
+            post_limit=post_limit,
+            since=since,
+            until=until,
+            all_posts=normalized_all_posts,
+        )
         
         # 使用规范化后的 ID 进行过滤
         posts = []
@@ -51,49 +62,20 @@ class SyncService:
             logger.warning("[sync] all %s fetched posts were filtered out! Please check if canonical_page_id=%s is correct.", 
                            len(raw_posts), canonical_page_id)
 
-        # 并发获取帖子媒体信息
-        async def _sync_post_media(p):
-            try:
-                media_info = await self.facebook.fetch_post_media_info(p["id"])
-                p["type"] = media_info.get("type", "")
-                if media_info.get("target_id"):
-                    p["video_id"] = media_info["target_id"]
-            except Exception as exc:
-                logger.warning("[sync] failed to detect media type for post=%s: %s", p.get("id", ""), exc)
-            upsert_post(canonical_page_id, p)
-
         if posts:
-            await asyncio.gather(*[_sync_post_media(p) for p in posts])
+            await self._run_in_batches(
+                [self._sync_post_media(canonical_page_id, p) for p in posts],
+                batch_size=8,
+            )
         logger.info("[sync] posts synced: %s", len(posts))
 
-        # 并发获取帖子评论信息
         synced_comment_count = 0
-        async def _sync_post_comments(p):
-            nonlocal synced_comment_count
-            try:
-                comments = await self.facebook.fetch_comments_for_post(p["id"], limit=100)
-                for comment in comments:
-                    replies = comment.get("replies", {}).get("data", [])
-                    if not replies:
-                        replies = await self.facebook.fetch_replies_for_comment(comment["id"], limit=100)
-                        if replies:
-                            comment["replies"] = {"data": replies}
-                    
-                    # 线程安全警告：由于 Python GIL，在 asyncio 中递增非原子变量通常没问题，
-                    # 但严格来说应该在 gather 后统计。这里简单处理。
-                    synced_comment_count += 1 + len(comment.get("replies", {}).get("data", []))
-                
-                replace_comments_for_post(p["id"], comments)
-                logger.info(
-                    "[sync] comments synced for post=%s top_level=%s",
-                    p.get("id", ""),
-                    len(comments)
-                )
-            except Exception as exc:
-                logger.error("[sync] failed to sync comments for post=%s: %s", p.get("id", ""), exc)
-
         if posts:
-            await asyncio.gather(*[_sync_post_comments(p) for p in posts])
+            counts = await self._run_in_batches(
+                [self._sync_post_comments(p) for p in posts],
+                batch_size=6,
+            )
+            synced_comment_count = sum(counts)
 
         logger.info("[sync] finished syncing comments: total (approx)=%s", synced_comment_count)
 
@@ -102,6 +84,27 @@ class SyncService:
             "post_count": len(posts),
             "comment_count": synced_comment_count,
             "next_cursor": next_cursor,
+            "all_posts": normalized_all_posts,
+        }
+
+    async def sync_post(self, post_id: str) -> dict[str, Any]:
+        logger.info("[sync] start syncing single post=%s", post_id)
+        profile = await self.facebook.fetch_page_profile()
+        upsert_page_profile(profile)
+        canonical_page_id = str(profile.get("id", ""))
+
+        post = await self.facebook.fetch_post(post_id)
+        if not self._is_post_from_current_page(post, canonical_page_id):
+            raise RuntimeError("目标帖子不属于当前主页，已拒绝同步")
+
+        await self._sync_post_media(canonical_page_id, post)
+        comment_count = await self._sync_post_comments(post)
+
+        logger.info("[sync] single post synced: post=%s comments=%s", post_id, comment_count)
+        return {
+            "page_id": canonical_page_id or self.config.page_id,
+            "post_id": post_id,
+            "comment_count": comment_count,
         }
 
     async def sync_insights(self) -> dict[str, Any]:
@@ -159,3 +162,75 @@ class SyncService:
         
         # 若是其他格式ID（无下划线），由于现在我们请求了 'posts' 边缘，通常都是直接合法的帖子放行
         return True
+
+    async def _fetch_posts_for_sync(
+        self,
+        *,
+        canonical_page_id: str,
+        post_limit: int,
+        since: str,
+        until: str,
+        all_posts: bool,
+    ) -> tuple[list[dict[str, Any]], str]:
+        if not all_posts:
+            result = await self.facebook.fetch_posts(
+                limit=max(1, post_limit),
+                since=since,
+                until=until,
+                page_id=canonical_page_id,
+            )
+            return result.get("data", []), result.get("paging", {}).get("cursors", {}).get("after", "")
+
+        all_raw_posts: list[dict[str, Any]] = []
+        cursor = ""
+        while True:
+            result = await self.facebook.fetch_posts(
+                limit=100,
+                since=since,
+                until=until,
+                after=cursor,
+                page_id=canonical_page_id,
+            )
+            batch = result.get("data", [])
+            all_raw_posts.extend(batch)
+
+            paging = result.get("paging", {})
+            cursor = paging.get("cursors", {}).get("after", "")
+            has_next = bool(paging.get("next")) and bool(cursor)
+            if not has_next or not batch:
+                break
+
+        return all_raw_posts, cursor
+
+    async def _sync_post_media(self, canonical_page_id: str, post: dict[str, Any]) -> None:
+        try:
+            media_info = await self.facebook.fetch_post_media_info(post["id"])
+            post["type"] = media_info.get("type", "")
+            if media_info.get("target_id"):
+                post["video_id"] = media_info["target_id"]
+        except Exception as exc:
+            logger.warning("[sync] failed to detect media type for post=%s: %s", post.get("id", ""), exc)
+        upsert_post(canonical_page_id, post)
+
+    async def _sync_post_comments(self, post: dict[str, Any]) -> int:
+        post_id = post.get("id", "")
+        try:
+            comments = await self.facebook.fetch_comments_for_post(post_id, limit=200)
+            replace_comments_for_post(post_id, comments)
+            count = sum(self._count_comment_tree(c) for c in comments)
+            logger.info("[sync] comments synced for post=%s top_level=%s total=%s", post_id, len(comments), count)
+            return count
+        except Exception as exc:
+            logger.error("[sync] failed to sync comments for post=%s: %s", post_id, exc)
+            return 0
+
+    def _count_comment_tree(self, comment: dict[str, Any]) -> int:
+        replies = comment.get("replies", {}).get("data", [])
+        return 1 + sum(self._count_comment_tree(reply) for reply in replies)
+
+    async def _run_in_batches(self, coroutines: list[Any], batch_size: int = 8) -> list[Any]:
+        results: list[Any] = []
+        for idx in range(0, len(coroutines), batch_size):
+            batch = coroutines[idx : idx + batch_size]
+            results.extend(await asyncio.gather(*batch))
+        return results

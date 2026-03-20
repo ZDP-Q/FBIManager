@@ -12,7 +12,7 @@
             <h1 class="page-title" style="margin:0 0 2px">评论中心</h1>
             <p class="page-subtitle" style="margin:0">查看并管理帖子评论，支持手动回复与 AI 自动生成。</p>
         </div>
-        <button class="btn btn-primary btn-sm" id="btn-sync-comments">同步最新数据</button>
+        <button class="btn btn-primary btn-sm" id="btn-sync-comments">全量同步所有帖子</button>
     </div>
 
     <div id="comments-alert" class="alert"></div>
@@ -36,6 +36,7 @@
                         </div>
                     </div>
                     <div class="post-actions-header" onclick="event.stopPropagation()">
+                        <button class="btn btn-secondary btn-xs" onclick="syncPost('{{ post.id }}', this)">同步该帖子</button>
                         <button class="btn btn-secondary btn-xs" onclick="toggleInsights('{{ post.id }}', this)">洞察数据</button>
                     </div>
                 </div>

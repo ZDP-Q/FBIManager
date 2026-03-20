@@ -270,11 +270,24 @@ async def page_profile():
 # ---------------------------------------------------------------------------
 
 @router.post("/sync")
-async def sync_data(limit: int = 20, since: str = "", until: str = ""):
+async def sync_data(limit: int = 0, since: str = "", until: str = "", all_posts: bool = True):
     config = load_config()
     service = SyncService(config)
     try:
-        return {"status": "success", "summary": await service.sync_all(post_limit=limit, since=since, until=until)}
+        return {
+            "status": "success",
+            "summary": await service.sync_all(post_limit=limit, since=since, until=until, all_posts=all_posts),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/sync/posts/{post_id}")
+async def sync_single_post_api(post_id: str):
+    config = load_config()
+    service = SyncService(config)
+    try:
+        return {"status": "success", "summary": await service.sync_post(post_id)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -315,8 +328,12 @@ async def create_reply(comment_id: str, payload: ReplyPayload):
     facebook = FacebookService(config)
     sync_service = SyncService(config)
     try:
+        comment = get_comment(comment_id)
         await facebook.send_reply(comment_id, payload.message)
-        summary = await sync_service.sync_all()
+        if comment is not None:
+            summary = await sync_service.sync_post(str(comment.get("post_id", "")))
+        else:
+            summary = await sync_service.sync_all(post_limit=1, all_posts=False)
         return {"status": "success", "summary": summary}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

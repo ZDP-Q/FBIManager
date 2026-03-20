@@ -135,18 +135,41 @@ async function delComment(commentId) {
     }
 }
 
-document.getElementById('btn-sync-comments')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-sync-comments');
-    btn.disabled = true; btn.textContent = '同步中...';
-    showAlert('正在同步评论数据...', 'info');
+async function syncPost(postId, btn) {
+    if (btn?.disabled) return;
+    const original = btn?.textContent || '同步该帖子';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '同步中...';
+    }
+    showAlert(`正在同步帖子 ${postId} ...`, 'info');
     try {
-        const r = await fetch('/api/sync', { method: 'POST' });
+        const r = await fetch(`/api/sync/posts/${encodeURIComponent(postId)}`, { method: 'POST' });
         if (!r.ok) throw new Error((await r.json()).detail || '同步失败');
-        showAlert('同步完成，刷新页面...', 'success');
+        showAlert('该帖子同步完成，刷新页面...', 'success');
         setTimeout(() => location.reload(), 600);
     } catch (e) {
         showAlert(e.message, 'error');
     } finally {
-        btn.disabled = false; btn.textContent = '同步最新数据';
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = original;
+        }
+    }
+}
+
+document.getElementById('btn-sync-comments')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-sync-comments');
+    btn.disabled = true; btn.textContent = '同步中...';
+    showAlert('正在全量同步所有帖子与评论...', 'info');
+    try {
+        const r = await fetch('/api/sync?all_posts=true&limit=0', { method: 'POST' });
+        if (!r.ok) throw new Error((await r.json()).detail || '同步失败');
+        showAlert('全量同步完成，刷新页面...', 'success');
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        showAlert(e.message, 'error');
+    } finally {
+        btn.disabled = false; btn.textContent = '全量同步所有帖子';
     }
 });

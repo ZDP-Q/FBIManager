@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,13 +26,24 @@ class FacebookService:
         if params:
             merged_params.update(params)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.request(
-                method,
-                f"{self.base_url}/{path.lstrip('/')}",
-                params=merged_params,
-                json=json_body,
-            )
+        response: httpx.Response | None = None
+        for attempt in range(3):
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.request(
+                    method,
+                    f"{self.base_url}/{path.lstrip('/')}",
+                    params=merged_params,
+                    json=json_body,
+                )
+
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt < 2:
+                    await asyncio.sleep(0.5 * (2 ** attempt))
+                    continue
+            break
+
+        if response is None:
+            raise RuntimeError("Facebook API 请求失败：未收到响应")
 
         if response.status_code >= 400:
             detail = response.text
