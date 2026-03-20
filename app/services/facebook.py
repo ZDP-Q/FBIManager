@@ -25,7 +25,7 @@ class FacebookService:
         if params:
             merged_params.update(params)
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.request(
                 method,
                 f"{self.base_url}/{path.lstrip('/')}",

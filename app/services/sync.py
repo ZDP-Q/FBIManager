@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -50,38 +51,51 @@ class SyncService:
             logger.warning("[sync] all %s fetched posts were filtered out! Please check if canonical_page_id=%s is correct.", 
                            len(raw_posts), canonical_page_id)
 
-        for post in posts:
+        # 并发获取帖子媒体信息
+        async def _sync_post_media(p):
             try:
-                media_info = await self.facebook.fetch_post_media_info(post["id"])
-                post["type"] = media_info.get("type", "")
+                media_info = await self.facebook.fetch_post_media_info(p["id"])
+                p["type"] = media_info.get("type", "")
                 if media_info.get("target_id"):
-                    post["video_id"] = media_info["target_id"]
+                    p["video_id"] = media_info["target_id"]
             except Exception as exc:
-                logger.warning("[sync] failed to detect media type for post=%s: %s", post.get("id", ""), exc)
-            # 存储时确保关联到规范化 ID
-            upsert_post(canonical_page_id, post)
+                logger.warning("[sync] failed to detect media type for post=%s: %s", p.get("id", ""), exc)
+            upsert_post(canonical_page_id, p)
+
+        if posts:
+            await asyncio.gather(*[_sync_post_media(p) for p in posts])
         logger.info("[sync] posts synced: %s", len(posts))
 
+        # 并发获取帖子评论信息
         synced_comment_count = 0
-        logger.info("[sync] start syncing comments for %s post(s)", len(posts))
-        for post in posts:
-            comments = await self.facebook.fetch_comments_for_post(post["id"], limit=100)
-            for comment in comments:
-                replies = comment.get("replies", {}).get("data", [])
-                if not replies:
-                    replies = await self.facebook.fetch_replies_for_comment(comment["id"], limit=100)
-                    if replies:
-                        comment["replies"] = {"data": replies}
-                synced_comment_count += 1 + len(comment.get("replies", {}).get("data", []))
-            replace_comments_for_post(post["id"], comments)
-            logger.info(
-                "[sync] comments synced for post=%s top_level=%s total_with_replies=%s",
-                post.get("id", ""),
-                len(comments),
-                sum(1 + len(c.get("replies", {}).get("data", [])) for c in comments),
-            )
+        async def _sync_post_comments(p):
+            nonlocal synced_comment_count
+            try:
+                comments = await self.facebook.fetch_comments_for_post(p["id"], limit=100)
+                for comment in comments:
+                    replies = comment.get("replies", {}).get("data", [])
+                    if not replies:
+                        replies = await self.facebook.fetch_replies_for_comment(comment["id"], limit=100)
+                        if replies:
+                            comment["replies"] = {"data": replies}
+                    
+                    # 线程安全警告：由于 Python GIL，在 asyncio 中递增非原子变量通常没问题，
+                    # 但严格来说应该在 gather 后统计。这里简单处理。
+                    synced_comment_count += 1 + len(comment.get("replies", {}).get("data", []))
+                
+                replace_comments_for_post(p["id"], comments)
+                logger.info(
+                    "[sync] comments synced for post=%s top_level=%s",
+                    p.get("id", ""),
+                    len(comments)
+                )
+            except Exception as exc:
+                logger.error("[sync] failed to sync comments for post=%s: %s", p.get("id", ""), exc)
 
-        logger.info("[sync] finished syncing comments: total=%s", synced_comment_count)
+        if posts:
+            await asyncio.gather(*[_sync_post_comments(p) for p in posts])
+
+        logger.info("[sync] finished syncing comments: total (approx)=%s", synced_comment_count)
 
         return {
             "page_id": profile.get("id") or self.config.page_id,
