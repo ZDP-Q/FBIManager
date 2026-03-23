@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.registry import get_monitor_service
@@ -11,10 +13,11 @@ from app.repositories import (
     delete_account,
     delete_comment_local,
     delete_monitor,
+    delete_posts,
+    clear_page_posts,
     get_account_by_id,
     get_active_account,
     get_comment,
-    get_insights,
     get_model_config,
     get_monitor,
     get_page_profile,
@@ -285,6 +288,22 @@ async def sync_data(limit: int = 0, since: str = "", until: str = "", all_posts:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/sync/stream")
+async def sync_data_stream(limit: int = 0, since: str = "", until: str = "", all_posts: bool = True):
+    config = load_config()
+    service = SyncService(config)
+
+    async def event_generator():
+        try:
+            async for step in service.sync_all_gen(post_limit=limit, since=since, until=until, all_posts=all_posts):
+                # Format as SSE event
+                yield f"data: {json.dumps(step, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @router.post("/sync/posts/{post_id}")
 async def sync_single_post_api(post_id: str):
     config = load_config()
@@ -293,32 +312,6 @@ async def sync_single_post_api(post_id: str):
         return {"status": "success", "summary": await service.sync_post(post_id)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.post("/sync-insights")
-async def sync_insights_api():
-    config = load_config()
-    service = SyncService(config)
-    try:
-        return {"status": "success", "summary": await service.sync_insights()}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-# ---------------------------------------------------------------------------
-# Insights
-# ---------------------------------------------------------------------------
-
-@router.get("/insights/page")
-async def page_insights_api():
-    config = load_config()
-    page_id = get_canonical_page_id(config.page_id)
-    return {"data": get_insights(page_id)}
-
-
-@router.get("/insights/{target_id:path}")
-async def target_insights_api(target_id: str):
-    return {"data": get_insights(target_id)}
 
 
 # ---------------------------------------------------------------------------
@@ -530,3 +523,29 @@ async def list_replied_api(monitor_id: int, limit: int = 50):
         raise HTTPException(status_code=404, detail="监控不存在")
     _assert_monitor_belongs_to_active_page(monitor)
     return list_replied_for_monitor(monitor_id, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Bulk delete posts
+# ---------------------------------------------------------------------------
+
+class DeletePostsPayload(BaseModel):
+    post_ids: list[str]
+
+@router.post("/posts/delete")
+async def delete_posts_api(payload: DeletePostsPayload):
+    try:
+        delete_posts(payload.post_ids)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@router.post("/posts/clear-all")
+async def clear_posts_api():
+    config = load_config()
+    page_id = get_canonical_page_id(config.page_id)
+    try:
+        clear_page_posts(page_id)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
