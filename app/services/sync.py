@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from app.config import AppConfig
-from app.repositories import replace_comments_for_post, upsert_insights, upsert_page_profile, upsert_post, list_posts, get_canonical_page_id
+from app.repositories import replace_comments_for_post, upsert_page_profile, upsert_post, list_posts, get_canonical_page_id
 from app.services.facebook import FacebookService
 
 
@@ -18,28 +18,27 @@ class SyncService:
         self.config = config
 
     async def sync_all(self, *, post_limit: int = 20, since: str = "", until: str = "", all_posts: bool = False) -> dict[str, Any]:
+        """Wrapper around sync_all_gen for backward compatibility."""
+        final_result = {}
+        async for step in self.sync_all_gen(post_limit=post_limit, since=since, until=until, all_posts=all_posts):
+            if "status" in step and step["status"] == "completed":
+                final_result = step.get("result", {})
+        return final_result
+
+    async def sync_all_gen(self, *, post_limit: int = 20, since: str = "", until: str = "", all_posts: bool = False):
         if self.config.page_id == "default-page":
             logger.warning("[sync] Skipping sync for 'default-page' as it is a placeholder.")
-            return {"status": "skipped", "reason": "default-page"}
-        
-        logger.info("[sync] start syncing page profile")
+            yield {"percent": 0, "status": "skipped", "reason": "default-page"}
+            return
+
+        yield {"percent": 5, "status": "正在获取主页基本信息..."}
         profile = await self.facebook.fetch_page_profile()
         upsert_page_profile(profile)
         
-        # 核心修复：使用 Facebook 返回的官方数字 ID 进行后续操作
         canonical_page_id = str(profile.get("id", ""))
-        logger.info("[sync] page profile synced: page_id=%s (canonical=%s) name=%s", 
-                    self.config.page_id, canonical_page_id, profile.get("name", ""))
-
         normalized_all_posts = all_posts or post_limit <= 0
-        logger.info(
-            "[sync] start syncing posts (limit=%s, all_posts=%s, since=%s, until=%s)",
-            post_limit,
-            normalized_all_posts,
-            since or "auto",
-            until or "auto",
-        )
-
+        
+        yield {"percent": 15, "status": f"正在获取帖子列表 (limit={post_limit if not normalized_all_posts else '全部'})..."}
         raw_posts, next_cursor = await self._fetch_posts_for_sync(
             canonical_page_id=canonical_page_id,
             post_limit=post_limit,
@@ -48,47 +47,48 @@ class SyncService:
             all_posts=normalized_all_posts,
         )
         
-        # 使用规范化后的 ID 进行过滤
         posts = []
         for post in raw_posts:
-            is_valid = self._is_post_from_current_page(post, canonical_page_id)
-            post_id = post.get("id")
-            from_info = post.get("from", {})
-            if is_valid:
+            if self._is_post_from_current_page(post, canonical_page_id):
                 posts.append(post)
-                logger.debug("[sync] accepted post: id=%s from=%s", post_id, from_info)
-            else:
-                logger.info("[sync] filtered out post: id=%s from=%s (reason: source mismatch with canonical=%s)", 
-                            post_id, from_info, canonical_page_id)
-        
-        # 如果过滤后一个都不剩，但在过滤前是有数据的，强制记录一条警告
-        if raw_posts and not posts:
-            logger.warning("[sync] all %s fetched posts were filtered out! Please check if canonical_page_id=%s is correct.", 
-                           len(raw_posts), canonical_page_id)
 
-        if posts:
-            await self._run_in_batches(
-                [self._sync_post_media(canonical_page_id, p) for p in posts],
-                batch_size=8,
-            )
-        logger.info("[sync] posts synced: %s", len(posts))
+        total_posts = len(posts)
+        if not posts:
+            yield {"percent": 100, "status": "同步完成，未发现新帖子"}
+            yield {"status": "completed", "result": {"page_id": canonical_page_id, "post_count": 0, "comment_count": 0}}
+            return
 
+        yield {"percent": 25, "status": f"发现 {total_posts} 篇帖子，开始同步媒体信息和评论..."}
+
+        # 分步处理帖子，以提供更细粒度的进度
         synced_comment_count = 0
-        if posts:
-            counts = await self._run_in_batches(
-                [self._sync_post_comments(p) for p in posts],
-                batch_size=6,
-            )
-            synced_comment_count = sum(counts)
+        batch_size = 5
+        processed_count = 0
 
-        logger.info("[sync] finished syncing comments: total (approx)=%s", synced_comment_count)
+        for i in range(0, total_posts, batch_size):
+            batch = posts[i : i + batch_size]
+            
+            # 同步媒体信息
+            await asyncio.gather(*[self._sync_post_media(canonical_page_id, p) for p in batch])
+            
+            # 同步评论
+            counts = await asyncio.gather(*[self._sync_post_comments(p) for p in batch])
+            synced_comment_count += sum(counts)
+            
+            processed_count += len(batch)
+            percent = 25 + int((processed_count / total_posts) * 70) # 25% -> 95%
+            yield {"percent": percent, "status": f"已处理 {processed_count}/{total_posts} 篇帖子..."}
 
-        return {
-            "page_id": profile.get("id") or self.config.page_id,
-            "post_count": len(posts),
-            "comment_count": synced_comment_count,
-            "next_cursor": next_cursor,
-            "all_posts": normalized_all_posts,
+        yield {"percent": 100, "status": "同步完成！"}
+        yield {
+            "status": "completed",
+            "result": {
+                "page_id": canonical_page_id,
+                "post_count": total_posts,
+                "comment_count": synced_comment_count,
+                "next_cursor": next_cursor,
+                "all_posts": normalized_all_posts,
+            }
         }
 
     async def sync_post(self, post_id: str) -> dict[str, Any]:
@@ -114,48 +114,6 @@ class SyncService:
             "post_id": post_id,
             "comment_count": comment_count,
         }
-
-    async def sync_insights(self) -> dict[str, Any]:
-        logger.info("[insights] start syncing page insights")
-        page_metrics = 0
-        canonical_page_id = get_canonical_page_id(self.config.page_id)
-        try:
-            page_data = await self.facebook.fetch_page_insights()
-            upsert_insights(canonical_page_id, "page", page_data)
-            page_metrics = len(page_data)
-            logger.info("[insights] page insights synced: %s metrics", page_metrics)
-        except Exception as exc:
-            logger.warning("[insights] page insights failed: %s", exc)
-
-        posts = list_posts(page_id=canonical_page_id, limit=20)
-        
-        async def _sync_single_post_insights(post: dict[str, Any]) -> bool:
-            post_id = post["id"]
-            detected_type = post.get("type", "")
-            # Try to get video_id from raw_json if not in direct fields
-            video_id = post.get("video_id", "")
-            try:
-                if "video" in detected_type and video_id:
-                    data = await self.facebook.fetch_video_insights(video_id)
-                    upsert_insights(post_id, "video", data)
-                    logger.info("[insights] video insights synced for post=%s video=%s", post_id, video_id)
-                else:
-                    data = await self.facebook.fetch_post_insights(post_id)
-                    upsert_insights(post_id, "post", data)
-                    logger.info("[insights] post insights synced for %s", post_id)
-                return True
-            except Exception as exc:
-                logger.warning("[insights] insights failed for post %s: %s", post_id, exc)
-                return False
-
-        results = await self._run_in_batches(
-            [_sync_single_post_insights(p) for p in posts],
-            batch_size=5,
-        )
-        post_synced = sum(1 for r in results if r)
-
-        logger.info("[insights] finished: page_metrics=%s posts_synced=%s", page_metrics, post_synced)
-        return {"page_metrics": page_metrics, "posts_synced": post_synced}
 
     def _is_post_from_current_page(self, post: dict[str, Any], canonical_page_id: str) -> bool:
         # 如果存在 from 字段且 id 明确，直接使用 from 来判断是不是主页自己的帖子

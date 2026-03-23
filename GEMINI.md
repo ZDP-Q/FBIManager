@@ -1,27 +1,32 @@
 # FBIManager Project Context
 
 ## Project Overview
-FBIManager (Facebook Interaction Manager) is a FastAPI-based application designed to manage Facebook Page interactions. It automates the synchronization of posts and comments, provides real-time monitoring of specific posts, and employs Large Language Models (LLMs) to generate intelligent automated replies.
+FBIManager (Facebook Interaction Manager) is a FastAPI-based application designed to manage and automate Facebook Page interactions. It supports multi-account management, provides real-time monitoring via Webhooks, automates data synchronization (posts, comments, and insights), and employs Large Language Models (LLMs) with customizable personas to generate intelligent automated replies.
 
 ### Core Technologies
 - **Backend:** Python 3.12+, FastAPI, Uvicorn, HTTPX (for Graph API and LLM requests).
-- **Database:** SQLite (local file-based storage for posts, comments, and system configs).
-- **Frontend:** Jinja2 templates, Vanilla CSS, and Vanilla JavaScript (no heavy frontend frameworks).
+- **Database:** SQLite (local storage for accounts, posts, comments, insights, and configs).
+- **Frontend:** Jinja2 templates, Vanilla CSS, and Vanilla JavaScript.
 - **Environment Management:** [uv](https://github.com/astral-sh/uv) is used for dependency management and script execution.
-- **AI Integration:** Compatible with OpenAI-style Chat Completion APIs (e.g., GPT, Qwen, DeepSeek).
+- **AI Integration:** OpenAI-style Chat Completion APIs (e.g., GPT, Qwen, DeepSeek) with Jinja2-based prompt templates.
+- **Facebook Integration:** Graph API v25.0, including Webhook support for real-time interactions.
 
 ### Key Architecture Components
-- `app/application.py`: App factory, lifespan management (DB init, monitor start/stop), and security middleware (Auth, CSRF protection, CSP).
-- `app/services/facebook.py`: Encapsulates Facebook Graph API v25.0 interactions.
-- `app/services/monitor.py`: Background task scheduler that periodically scans monitored posts for new comments.
-- `app/services/ai_reply.py`: Logic for generating AI responses based on post and comment context.
+- `app/application.py`: App factory, lifecycle management, and security middleware (Auth, CSRF, CSP).
+- `app/services/sync.py`: Handles batch synchronization of posts, comments, and multi-level insights (Page, Post, Video).
+- `app/services/webhook.py`: Processes real-time Facebook events and coordinates immediate AI responses.
+- `app/services/facebook.py`: Low-level wrapper for Facebook Graph API v25.0 interactions.
+- `app/services/ai_reply.py`: Core logic for generating AI responses using template-based personas.
+- `app/services/monitor.py`: Background task scheduler for periodic data refresh.
+- `app/routes/webhook.py`: Entry point for Facebook Webhook verification and event handling.
+- `prompts/`: Directory containing Jinja2 templates for different AI "personas" (e.g., Elio, ElyaVena).
 - `app/repositories.py`: Data Access Object (DAO) layer for SQLite interactions.
 
 ## Building and Running
 
 ### Prerequisites
 - Python 3.12 or higher.
-- `uv` installed (`pip install uv` or via standalone installer).
+- `uv` installed (`pip install uv`).
 
 ### Key Commands
 - **Install Dependencies:**
@@ -30,7 +35,7 @@ FBIManager (Facebook Interaction Manager) is a FastAPI-based application designe
   ```
 - **Initialize/Reset Admin Password:**
   ```bash
-  # Must be done before the first run. Required 16+ characters.
+  # Required 16+ characters.
   uv run python reset_pwd.py
   ```
 - **Run the Application (Development):**
@@ -39,26 +44,27 @@ FBIManager (Facebook Interaction Manager) is a FastAPI-based application designe
   ```
 - **Deployment (Docker):**
   ```bash
-  # Host-side deployment script using docker compose
+  # Using docker-compose
   bash scripts/deploy.sh
   ```
 
 ### Startup Script
-- `scripts/start.sh`: Unified entry point for both Docker containers and host-side execution. It automatically detects the environment and handles working directory switching.
+- `scripts/start.sh`: Unified entry point for both Docker and host environments.
 
 ## Development Conventions
 
 ### Security Standards
-- **Authentication:** Administrator access is protected by PBKDF2-SHA256 hashing. Login attempts are throttled/locked by IP.
-- **CSRF Protection:** Middleware strictly validates `Origin` and `Referer` headers for all mutation requests (`POST`, `PUT`, `PATCH`, `DELETE`).
-- **Data Privacy:** Never hardcode Access Tokens or API Keys. Use the web interface to configure them, where they are stored in the local SQLite database.
+- **Authentication:** Admin access protected by PBKDF2-SHA256. Login attempts are throttled by IP.
+- **Session Management:** Explicit session lifecycle management and CSRF protection (Origin/Referer validation).
+- **Data Privacy:** Access tokens and API keys are stored in the local SQLite database, never hardcoded.
 
 ### Implementation Guidelines
-- **Python Style:** Use Python 3.12 features (e.g., `dataclass(slots=True)`, type hints). Adhere to `ruff` for linting and formatting.
-- **Facebook API:** Prefer Graph API v25.0. Use the fallback strategy in `FacebookService` to ensure high fetch success rates across different page types.
-- **Async First:** All network I/O (Facebook API, LLM calls) and database operations must be asynchronous where possible to avoid blocking the event loop.
-- **UI Logic:** Keep the frontend simple. Use Vanilla JS and interactive feedback (alerts, loading states) for all asynchronous actions.
+- **Python Style:** Use Python 3.12 features (e.g., `dataclass(slots=True)`). Adhere to `ruff` for linting.
+- **Persona Management:** AI behaviors are defined in `prompts/*.j2`. Use the registry system to manage and switch personas dynamically.
+- **Multi-Account:** All services must handle multiple Facebook Page configurations dynamically based on the account context.
+- **Async First:** All network I/O and database operations must be asynchronous to ensure high responsiveness.
 
 ### Testing and Validation
-- **Connectivity Testing:** Always use the "Test Configuration" feature in the UI when updating LLM settings.
-- **Manual Verification:** After significant changes to sync or monitor logic, manually trigger a sync/run in the UI to verify behavioral correctness.
+- **Webhook Testing:** Verify Facebook Webhook integrations by ensuring the server's endpoint is reachable and correctly configured in the Facebook Developer Portal.
+- **AI Verification:** Use the "Test Configuration" feature in the UI to verify LLM connectivity and prompt rendering.
+- **Manual Verification:** After significant changes, manually trigger sync or monitor tasks in the UI to ensure behavioral correctness.

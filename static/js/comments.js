@@ -1,135 +1,48 @@
+// 拦截旧调用
+window.loadAllQuickStats = function() {};
+window.toggleInsights = function() {};
+window.fetchInsights = function() {};
+
 const alertEl = document.getElementById('comments-alert');
-const insightsLoaded = new Set();
-const insightsCache = new Map();
+const progressContainer = document.getElementById('sync-progress-container');
+const progressBar = document.getElementById('sync-progress-bar');
+const progressStatus = document.getElementById('progress-status');
+const progressPercent = document.getElementById('progress-percent');
 
 function showAlert(msg, type = 'info') {
+    if (!alertEl) return;
     alertEl.textContent = msg;
     alertEl.className = `alert alert-${type} visible`;
 }
 
-const METRIC_LABELS = {
-    page_impressions: '主页触达',
-    page_media_view: '主页媒体浏览',
-    page_total_media_view_unique: '主页媒体独立浏览',
-    page_engaged_users: '互动用户数',
-    page_views_total: '主页浏览',
-    page_actions_post_reactions_total: '发帖被回应数',
-    post_impressions: '帖子曝光',
-    post_impressions_unique: '触及人数',
-    post_media_view: '帖子媒体浏览',
-    post_total_media_view_unique: '帖子媒体独立浏览',
-    post_engaged_users: '互动人数',
-    post_clicks: '点击数',
-    post_reactions_like_total: '点赞数',
-    total_video_views: '视频播放',
-    total_video_view_total_time: '视频总观看时长',
-    total_video_complete_views: '视频完整观看',
-};
-
-function fmtNum(v) {
-    if (typeof v !== 'number') return String(v ?? '-');
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
-    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
-    return v.toLocaleString('zh-CN');
+/* Progress Bar Controls */
+function showProgress(status = "正在处理...") {
+    if (progressContainer) progressContainer.style.display = 'block';
+    updateProgress(0, status);
 }
 
-async function fetchInsights(postId) {
-    if (insightsCache.has(postId)) return insightsCache.get(postId);
-    const r = await fetch(`/api/insights/${encodeURIComponent(postId)}`);
-    if (!r.ok) throw new Error('获取失败');
-    const result = await r.json();
-    const metrics = result.data || [];
-    insightsCache.set(postId, metrics);
-    return metrics;
+function updateProgress(percent, status) {
+    if (progressBar) progressBar.style.width = `${percent}%`;
+    if (progressPercent) progressPercent.textContent = `${percent}%`;
+    if (status && progressStatus) progressStatus.textContent = status;
 }
 
-function renderQuickStats(postId, metrics) {
-    const el = document.getElementById(`quick-stats-${postId}`);
-    if (!el || !metrics.length) return;
-
-    const findMetric = (keys) => {
-        for (const k of keys) {
-            const m = metrics.find(x => x.name === k);
-            if (m && m.values?.[0]) return m.values[0].value;
-        }
-        return null;
-    };
-
-    // Determine core metrics based on post type (handled by looking at common metrics)
-    const reach = findMetric(['post_impressions_unique', 'post_impressions']);
-    const engagement = findMetric(['post_engaged_users']);
-    const views = findMetric(['total_video_views']);
-
-    let html = '';
-    if (reach !== null) html += `<span class="badge badge-neutral" style="font-size:10px; opacity:0.8">👥 ${fmtNum(reach)} 触及</span>`;
-    if (engagement !== null) html += `<span class="badge badge-neutral" style="font-size:10px; opacity:0.8">🔥 ${fmtNum(engagement)} 互动</span>`;
-    if (views !== null) html += `<span class="badge badge-neutral" style="font-size:10px; opacity:0.8">▶ ${fmtNum(views)} 播放</span>`;
-    
-    el.innerHTML = html;
+function hideProgress() {
+    if (progressContainer) progressContainer.style.display = 'none';
 }
 
-async function loadAllQuickStats() {
-    const cards = document.querySelectorAll('.post-card');
-    const ids = Array.from(cards).map(c => c.dataset.postId);
-    
-    // Load in small batches to not overwhelm the UI/network
-    const batchSize = 4;
-    for (let i = 0; i < ids.length; i += batchSize) {
-        const batch = ids.slice(i, i + batchSize);
-        await Promise.all(batch.map(async (id) => {
-            try {
-                const metrics = await fetchInsights(id);
-                renderQuickStats(id, metrics);
-            } catch (e) {
-                console.warn(`Failed to load quick stats for ${id}`, e);
-            }
-        }));
-    }
-}
-
-/* Toggle post expand */
-function togglePost(headerEl) {
+/* UI Interaction Functions */
+window.togglePost = function(headerEl) {
     const card = headerEl.closest('.post-card');
     card.classList.toggle('expanded');
 }
 
-/* Insights toggle */
-async function toggleInsights(postId, btn) {
-    const panel = document.getElementById(`ins-${postId}`);
-    if (panel.classList.contains('visible')) {
-        panel.classList.remove('visible');
-        return;
-    }
-    panel.classList.add('visible');
-    const grid = document.getElementById(`ins-grid-${postId}`);
-    try {
-        const metrics = await fetchInsights(postId);
-        if (!metrics.length) {
-            grid.innerHTML = '<div class="ins-card"><div class="ins-label">暂无数据</div><div class="ins-value">-</div></div>';
-            return;
-        }
-        grid.innerHTML = metrics.map(m => {
-            const latest = Array.isArray(m.values) ? m.values[0] : null;
-            const val = latest ? fmtNum(latest.value) : '-';
-            const label = METRIC_LABELS[m.name] || m.name;
-            return `<div class="ins-card"><div class="ins-label">${label}</div><div class="ins-value">${val}</div></div>`;
-        }).join('');
-    } catch (e) {
-        grid.innerHTML = `<div class="ins-card"><div class="ins-label text-danger">${e.message}</div><div class="ins-value">-</div></div>`;
-    }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    loadAllQuickStats();
-});
-
-/* Reply form */
-function toggleReplyForm(commentId) {
+window.toggleReplyForm = function(commentId) {
     const form = document.getElementById(`rf-${commentId}`);
-    form.classList.toggle('open');
+    if (form) form.classList.toggle('open');
 }
 
-async function sendReply(commentId) {
+window.sendReply = async function(commentId) {
     const ta = document.getElementById(`rt-${commentId}`);
     const msg = ta.value.trim();
     if (!msg) { showAlert('请输入回复内容', 'warning'); return; }
@@ -148,13 +61,15 @@ async function sendReply(commentId) {
     }
 }
 
-async function genAiReply(commentId, btn) {
+window.genAiReply = async function(commentId, btn) {
     if (btn.disabled) return;
     const form = document.getElementById(`rf-${commentId}`);
     const ta = document.getElementById(`rt-${commentId}`);
-    form.classList.add('open');
-    ta.value = '';
-    ta.placeholder = 'AI 生成中，请稍候...';
+    if (form) form.classList.add('open');
+    if (ta) {
+        ta.value = '';
+        ta.placeholder = 'AI 生成中，请稍候...';
+    }
     btn.disabled = true;
     const origText = btn.textContent;
     btn.textContent = '生成中...';
@@ -163,12 +78,14 @@ async function genAiReply(commentId, btn) {
         const r = await fetch(`/api/comments/${commentId}/ai-reply`, { method: 'POST' });
         if (!r.ok) throw new Error((await r.json()).detail || '生成失败');
         const res = await r.json();
-        ta.value = res.message;
-        ta.placeholder = '输入回复内容...';
+        if (ta) {
+            ta.value = res.message;
+            ta.placeholder = '输入回复内容...';
+            ta.focus();
+        }
         showAlert('AI 回复已生成，请确认后发送。', 'success');
-        ta.focus();
     } catch (e) {
-        ta.placeholder = '输入回复内容...';
+        if (ta) ta.placeholder = '输入回复内容...';
         showAlert(e.message, 'error');
     } finally {
         btn.disabled = false;
@@ -176,7 +93,7 @@ async function genAiReply(commentId, btn) {
     }
 }
 
-async function delComment(commentId) {
+window.delComment = async function(commentId) {
     if (!confirm('确认删除这条评论？该操作会同步删除 Facebook 上的评论。')) return;
     showAlert('正在删除...', 'info');
     try {
@@ -190,20 +107,24 @@ async function delComment(commentId) {
     }
 }
 
-async function syncPost(postId, btn) {
+window.syncPost = async function(postId, btn) {
     if (btn?.disabled) return;
-    const original = btn?.textContent || '同步该帖子';
+    const original = btn?.textContent || '同步';
     if (btn) {
         btn.disabled = true;
-        btn.textContent = '同步中...';
+        btn.textContent = '...';
     }
-    showAlert(`正在同步帖子 ${postId} ...`, 'info');
+    showProgress(`正在同步帖子 ${postId}`);
+    updateProgress(30, "正在连接 Facebook...");
+    
     try {
         const r = await fetch(`/api/sync/posts/${encodeURIComponent(postId)}`, { method: 'POST' });
         if (!r.ok) throw new Error((await r.json()).detail || '同步失败');
+        updateProgress(100, "同步完成！");
         showAlert('该帖子同步完成，刷新页面...', 'success');
         setTimeout(() => location.reload(), 600);
     } catch (e) {
+        hideProgress();
         showAlert(e.message, 'error');
     } finally {
         if (btn) {
@@ -213,18 +134,141 @@ async function syncPost(postId, btn) {
     }
 }
 
-document.getElementById('btn-sync-comments')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-sync-comments');
-    btn.disabled = true; btn.textContent = '同步中...';
-    showAlert('正在全量同步所有帖子与评论...', 'info');
+async function doSync(limit, since, until, allPosts = false) {
+    showAlert(`开始同步任务...`, 'info');
+    showProgress("正在准备同步帖子...");
+    
+    const params = new URLSearchParams({ 
+        limit: limit.toString(), 
+        all_posts: allPosts.toString() 
+    });
+    if (since) params.append('since', since);
+    if (until) params.append('until', until);
+    
+    const eventSource = new EventSource(`/api/sync/stream?${params.toString()}`);
+    
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.error) {
+            eventSource.close();
+            hideProgress();
+            showAlert(data.error, 'error');
+            return;
+        }
+        
+        if (data.percent !== undefined) {
+            updateProgress(data.percent, data.status);
+        }
+        
+        if (data.status === "completed") {
+            eventSource.close();
+            updateProgress(100, "同步成功！");
+            showAlert('同步完成，正在刷新页面...', 'success');
+            setTimeout(() => location.reload(), 800);
+        }
+    };
+    
+    eventSource.onerror = (e) => {
+        eventSource.close();
+        // 如果已经 100% 或者是 completed 状态，忽略错误
+        if (progressPercent && progressPercent.textContent === "100%") return;
+        hideProgress();
+        showAlert("同步过程中连接中断，请重试。", 'error');
+    };
+}
+
+function updateSelectedCount() {
+    const checked = document.querySelectorAll('.post-checkbox:checked').length;
+    const el = document.getElementById('selected-count');
+    if (el) el.textContent = `已选中 ${checked} 篇`;
+}
+
+async function deletePosts(postIds) {
+    if (!postIds.length) return;
+    showProgress(`正在从本地删除 ${postIds.length} 篇帖子...`);
+    updateProgress(50, "正在删除数据...");
     try {
-        const r = await fetch('/api/sync?all_posts=true&limit=0', { method: 'POST' });
-        if (!r.ok) throw new Error((await r.json()).detail || '同步失败');
-        showAlert('全量同步完成，刷新页面...', 'success');
+        const r = await fetch('/api/posts/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ post_ids: postIds }),
+        });
+        if (!r.ok) throw new Error('操作失败');
+        updateProgress(100, "删除成功！");
+        showAlert('帖子已从本地数据库永久删除，正在刷新...', 'success');
         setTimeout(() => location.reload(), 600);
     } catch (e) {
+        hideProgress();
         showAlert(e.message, 'error');
-    } finally {
-        btn.disabled = false; btn.textContent = '全量同步所有帖子';
     }
+}
+
+window.deleteSinglePost = async function(postId) {
+    if (confirm("确认从本地数据库永久删除该帖子及其所有评论？此操作不可撤销（除非重新同步）。")) {
+        await deletePosts([postId]);
+    }
+}
+
+/* Initialize everything after DOM load */
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. 同步帖子 (筛选栏)
+    document.getElementById('btn-sync-custom')?.addEventListener('click', () => {
+        const limit = parseInt(document.getElementById('sync-limit')?.value || '20', 10);
+        const since = document.getElementById('sync-since')?.value?.trim() || '';
+        const until = document.getElementById('sync-until')?.value?.trim() || '';
+        doSync(limit, since, until);
+    });
+
+    // 2. 同步全量评论
+    document.getElementById('btn-sync-comments')?.addEventListener('click', async (e) => {
+        doSync(0, "", "", true);
+    });
+
+    // 3. 全选
+    document.getElementById('btn-select-all')?.addEventListener('click', () => {
+        document.querySelectorAll('.post-checkbox').forEach(cb => cb.checked = true);
+        updateSelectedCount();
+    });
+
+    // 4. 取消选择
+    document.getElementById('btn-select-none')?.addEventListener('click', () => {
+        document.querySelectorAll('.post-checkbox').forEach(cb => cb.checked = false);
+        updateSelectedCount();
+    });
+
+    // 5. 删除选中
+    document.getElementById('btn-delete-selected')?.addEventListener('click', async () => {
+        const checkedCbs = document.querySelectorAll('.post-checkbox:checked');
+        const ids = Array.from(checkedCbs).map(cb => cb.getAttribute('data-post-id'));
+        if (!ids.length) {
+            showAlert('请先勾选需要删除的帖子', 'warning');
+            return;
+        }
+        if (confirm(`确认从本地数据库永久删除选中的 ${ids.length} 篇帖子吗？此操作不可撤销。`)) {
+            await deletePosts(ids);
+        }
+    });
+
+    // 6. 清空当前列表
+    document.getElementById('btn-clear-all')?.addEventListener('click', async () => {
+        if (!confirm('确认清空当前账号在本地数据库中的所有帖子和评论？此操作不可撤销。')) return;
+        showProgress('正在清空本地数据...');
+        try {
+            const r = await fetch('/api/posts/clear-all', { method: 'POST' });
+            if (!r.ok) throw new Error('操作失败');
+            updateProgress(100, "清空成功！");
+            showAlert('本地列表已清空，正在刷新...', 'success');
+            setTimeout(() => location.reload(), 600);
+        } catch (e) {
+            hideProgress();
+            showAlert(e.message, 'error');
+        }
+    });
+
+    // 7. Checkbox Change event delegation
+    document.querySelector('.posts-scroll')?.addEventListener('change', (e) => {
+        if (e.target.classList.contains('post-checkbox')) {
+            updateSelectedCount();
+        }
+    });
 });

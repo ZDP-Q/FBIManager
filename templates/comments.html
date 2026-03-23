@@ -1,116 +1,167 @@
 {% extends "base.html" %}
 
-{% block title %}评论中心{% endblock %}
+{% block title %}内容中心{% endblock %}
 {% block body_class %}fixed-layout{% endblock %}
 {% block nav_comments %}active{% endblock %}
 
 {% block content %}
 <div class="comments-layout">
-    <!-- Header bar -->
-    <div class="comments-toolbar">
-        <div style="flex:1">
-            <h1 class="page-title" style="margin:0 0 2px">评论中心</h1>
-            <p class="page-subtitle" style="margin:0">查看并管理帖子评论，支持手动回复与 AI 自动生成。</p>
+    <!-- Header bar with Integrated Filter/Sync -->
+    <div class="comments-toolbar" style="flex-direction: column; align-items: stretch; height: auto; padding: 12px 16px; gap: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1 class="page-title" style="margin:0 0 2px">内容中心</h1>
+                <p class="page-subtitle" style="margin:0">按需筛选并同步 Facebook 帖子与评论数据。</p>
+            </div>
         </div>
-        <button class="btn btn-primary btn-sm" id="btn-sync-comments">全量同步所有帖子</button>
+
+        <!-- Comment Fetch Settings -->
+        <div class="filter-bar" style="background: var(--surface-2); border-radius: var(--radius); padding: 10px 14px; border: 1px solid var(--border-muted);">
+            <div class="filter-group" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-muted);">同步设置:</span>
+                
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 12px;">帖子数量</label>
+                    <input type="number" id="sync-limit" min="1" max="100" value="20" style="width: 65px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);">
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 12px;">时间范围</label>
+                    <input type="date" id="sync-since" style="padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px;">
+                    <span style="font-size: 12px;">至</span>
+                    <input type="date" id="sync-until" style="padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px;">
+                </div>
+
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-primary btn-xs" id="btn-sync-custom" style="padding: 6px 12px;">同步帖子</button>
+                    <button class="btn btn-secondary btn-xs" id="btn-sync-comments" style="padding: 6px 12px;">同步全量评论</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Action Bar -->
+        <div class="bulk-actions" style="display: flex; gap: 8px; align-items: center; padding-top: 4px;">
+            <button class="btn btn-ghost btn-xs" id="btn-select-all">全选</button>
+            <button class="btn btn-ghost btn-xs" id="btn-select-none">取消选择</button>
+            <div style="width: 1px; height: 16px; background: var(--border-muted); margin: 0 4px;"></div>
+            <button class="btn btn-danger btn-xs" id="btn-delete-selected">删除选中</button>
+            <button class="btn btn-ghost btn-xs" id="btn-clear-all" style="color: var(--danger);">清空本地列表</button>
+            <span id="selected-count" style="font-size: 11px; color: var(--muted); margin-left: auto;">已选中 0 篇</span>
+        </div>
     </div>
 
-    <div id="comments-alert" class="alert"></div>
+    <!-- Sync Progress Bar -->
+    <div id="sync-progress-container" class="progress-container" style="display: none; margin: 0 16px 12px 16px;">
+        <div class="progress-bar-label">
+            <span id="progress-status">正在同步...</span>
+            <span id="progress-percent">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+            <div id="sync-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div id="comments-alert" class="alert" style="margin: 0 16px 12px 16px;"></div>
 
     <!-- Posts scroll area -->
     <div class="posts-scroll">
-        {% if posts %}
-            {% for post in posts %}
-            <div class="post-card" data-post-id="{{ post.id }}">
-                <!-- Post header (always visible, clickable) -->
-                <div class="post-card-header" onclick="togglePost(this)">
-                    <span class="post-expand-icon">▶</span>
-                    <div class="post-meta">
-                        <div class="post-excerpt" style="display: flex; align-items: center; gap: 8px;">
-                            {% if post.type == 'video' %}
-                            <span class="badge badge-info" style="font-size: 10px; padding: 1px 4px;">🎥 视频</span>
-                            {% elif post.type == 'photo' %}
-                            <span class="badge badge-success" style="font-size: 10px; padding: 1px 4px;">📷 图片</span>
-                            {% elif post.type == 'status' %}
-                            <span class="badge badge-neutral" style="font-size: 10px; padding: 1px 4px;">📝 状态</span>
-                            {% endif %}
-                            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">{{ post.message or '（无内容）' }}</span>
-                        </div>
-                        <div class="post-info-row">
-                            <span class="text-xs fw-600">{{ post.created_time or '-' }}</span>
-                            <span class="text-xs">{{ post.comments|length }} 条评论</span>
-                            <div id="quick-stats-{{ post.id }}" style="display: flex; gap: 8px; margin-left: 4px;">
-                                <!-- JS will inject quick stats here -->
-                            </div>
-                            {% if post.permalink_url %}
-                            <a href="{{ post.permalink_url }}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">查看原帖 ↗</a>
-                            {% endif %}
-                        </div>
-                    </div>
-                    <div class="post-actions-header" onclick="event.stopPropagation()">
-                        <button class="btn btn-secondary btn-xs" onclick="syncPost('{{ post.id }}', this)">同步该帖子</button>
-                        <button class="btn btn-secondary btn-xs" onclick="toggleInsights('{{ post.id }}', this)">洞察数据</button>
-                    </div>
+        {% if grouped_posts %}
+            {% for group in grouped_posts %}
+            <div class="date-section">
+                <div class="date-divider">
+                    <span class="date-label">{{ group.date }}</span>
+                    <div class="date-line"></div>
                 </div>
-
-                <!-- Post body (collapsed by default) -->
-                <div class="post-body">
-                    <!-- Insights panel -->
-                    <div class="insights-panel" id="ins-{{ post.id }}">
-                        <div class="insights-grid" id="ins-grid-{{ post.id }}">
-                            <div class="ins-card"><div class="ins-label">加载中</div><div class="ins-value">-</div></div>
-                        </div>
+                
+                {% for post in group.posts %}
+                <div class="post-card" data-post-id="{{ post.id }}" style="display: flex;">
+                    <!-- Bulk Select Checkbox -->
+                    <div class="post-select-col" style="padding: 14px 0 14px 16px; display: flex; align-items: flex-start;">
+                        <input type="checkbox" class="post-checkbox" data-post-id="{{ post.id }}" onclick="event.stopPropagation()">
                     </div>
 
-                    <!-- Comment list -->
-                    <div class="comment-list">
-                        {% macro render_comment(comment, depth=0) %}
-                        <div class="comment-item {{ 'reply-item' if depth > 0 }}" id="ci-{{ comment.id }}" style="margin-left: {{ depth * 20 }}px">
-                            <div class="comment-top">
-                                <div class="comment-avatar">{{ (comment.author_name or '?')[0]|upper }}</div>
-                                <div class="comment-body">
-                                    <span class="comment-author">{{ comment.author_name or '匿名用户' }}</span>
-                                    <span class="comment-time">{{ comment.created_time or '' }}</span>
-                                    <p class="comment-text">{{ comment.message or '（空）' }}</p>
+                    <div style="flex: 1; min-width: 0;">
+                        <!-- Post header -->
+                        <div class="post-card-header" onclick="togglePost(this)">
+                            <span class="post-expand-icon">▶</span>
+                            <div class="post-meta">
+                                <div class="post-excerpt" style="display: flex; align-items: center; gap: 8px;">
+                                    {% if post.type == 'video' %}
+                                    <span class="badge badge-info" style="font-size: 10px; padding: 1px 4px;">🎥 视频</span>
+                                    {% elif post.type == 'photo' %}
+                                    <span class="badge badge-success" style="font-size: 10px; padding: 1px 4px;">📷 图片</span>
+                                    {% elif post.type == 'status' %}
+                                    <span class="badge badge-neutral" style="font-size: 10px; padding: 1px 4px;">📝 状态</span>
+                                    {% endif %}
+                                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">{{ post.message or '（无内容）' }}</span>
+                                </div>
+                                <div class="post-info-row">
+                                    <span class="text-xs fw-600">{{ post.created_time or '-' }}</span>
+                                    <span class="text-xs">{{ post.comments|length }} 条评论</span>
+                                    {% if post.permalink_url %}
+                                    <a href="{{ post.permalink_url }}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">查看原帖 ↗</a>
+                                    {% endif %}
                                 </div>
                             </div>
-                            <div class="comment-actions-row">
-                                <button class="btn btn-ghost btn-xs" onclick="toggleReplyForm('{{ comment.id }}')">回复</button>
-                                <button class="btn btn-ghost btn-xs" onclick="genAiReply('{{ comment.id }}', this)">AI 生成</button>
-                                <button class="btn btn-danger btn-xs" onclick="delComment('{{ comment.id }}')">删除</button>
-                            </div>
-                            <div class="reply-form-wrap" id="rf-{{ comment.id }}">
-                                <textarea id="rt-{{ comment.id }}" placeholder="输入回复，或点击「AI 生成」..."></textarea>
-                                <div class="reply-form-actions">
-                                    <button class="btn btn-secondary btn-sm" onclick="toggleReplyForm('{{ comment.id }}')">取消</button>
-                                    <button class="btn btn-primary btn-sm" onclick="sendReply('{{ comment.id }}')">发送</button>
-                                </div>
+                            <div class="post-actions-header" onclick="event.stopPropagation()">
+                                <button class="btn btn-secondary btn-xs" onclick="syncPost('{{ post.id }}', this)">同步</button>
+                                <button class="btn btn-danger btn-xs" onclick="deleteSinglePost('{{ post.id }}')">删除</button>
                             </div>
                         </div>
-                        {% if comment.replies %}
-                            {% for reply in comment.replies %}
-                                {{ render_comment(reply, depth + 1) }}
-                            {% endfor %}
-                        {% endif %}
-                        {% endmacro %}
 
-                        {% if post.comments %}
-                            {% for comment in post.comments %}
-                                {{ render_comment(comment) }}
-                            {% endfor %}
-                        {% else %}
-                        <div class="empty-state" style="padding:20px">
-                            <p>该帖子暂无评论。</p>
+                        <!-- Post body -->
+                        <div class="post-body">
+                            <div class="comment-list">
+                                {% macro render_comment(comment, depth=0) %}
+                                <div class="comment-item {{ 'reply-item' if depth > 0 }}" id="ci-{{ comment.id }}" style="margin-left: {{ depth * 20 }}px">
+                                    <div class="comment-top">
+                                        <div class="comment-avatar">{{ (comment.author_name or '?')[0]|upper }}</div>
+                                        <div class="comment-body">
+                                            <span class="comment-author">{{ comment.author_name or '匿名用户' }}</span>
+                                            <span class="comment-time">{{ comment.created_time or '' }}</span>
+                                            <p class="comment-text">{{ comment.message or '（空）' }}</p>
+                                        </div>
+                                    </div>
+                                    <div class="comment-actions-row">
+                                        <button class="btn btn-ghost btn-xs" onclick="toggleReplyForm('{{ comment.id }}')">回复</button>
+                                        <button class="btn btn-ghost btn-xs" onclick="genAiReply('{{ comment.id }}', this)">AI 生成</button>
+                                        <button class="btn btn-danger btn-xs" onclick="delComment('{{ comment.id }}')">删除</button>
+                                    </div>
+                                    <div class="reply-form-wrap" id="rf-{{ comment.id }}">
+                                        <textarea id="rt-{{ comment.id }}" placeholder="输入回复..."></textarea>
+                                        <div class="reply-form-actions">
+                                            <button class="btn btn-secondary btn-sm" onclick="toggleReplyForm('{{ comment.id }}')">取消</button>
+                                            <button class="btn btn-primary btn-sm" onclick="sendReply('{{ comment.id }}')">发送</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% if comment.replies %}
+                                    {% for reply in comment.replies %}
+                                        {{ render_comment(reply, depth + 1) }}
+                                    {% endfor %}
+                                {% endif %}
+                                {% endmacro %}
+
+                                {% if post.comments %}
+                                    {% for comment in post.comments %}
+                                        {{ render_comment(comment) }}
+                                    {% endfor %}
+                                {% else %}
+                                <div class="empty-state" style="padding:20px">
+                                    <p>该帖子暂无评论。</p>
+                                </div>
+                                {% endif %}
+                            </div>
                         </div>
-                        {% endif %}
                     </div>
                 </div>
+                {% endfor %}
             </div>
             {% endfor %}
         {% else %}
         <div class="empty-state">
             <div class="empty-state-icon">💬</div>
-            <p>暂无帖子数据，请先执行数据同步。</p>
+            <p>暂无内容，请先执行同步。</p>
         </div>
         {% endif %}
     </div>

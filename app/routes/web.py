@@ -66,26 +66,38 @@ async def home(request: Request):
 
 
 @router.get("/comments", response_class=HTMLResponse)
-async def comments_page(request: Request):
+async def content_page(request: Request):
     config = load_config()
     page_id = get_canonical_page_id(config.page_id)
     posts = list_posts(page_id=page_id)
     comments_by_post = list_comments_by_post_ids([post["id"] for post in posts])
 
-    post_cards = []
+    from collections import defaultdict
+    posts_by_date = defaultdict(list)
+
     for post in posts:
-        post_cards.append(
-            {
-                **post,
-                "comments": comments_by_post.get(post["id"], []),
-            }
-        )
+        post_data = {
+            **post,
+            "comments": comments_by_post.get(post["id"], []),
+        }
+        # post["created_time"] is like "2026-03-23T10:21:27+0000"
+        date_str = "未知日期"
+        if post.get("created_time"):
+            try:
+                date_str = post["created_time"].split("T")[0]
+            except Exception:
+                pass
+        posts_by_date[date_str].append(post_data)
+
+    # Sort dates descending
+    sorted_dates = sorted(posts_by_date.keys(), reverse=True)
+    grouped_posts = [{"date": d, "posts": posts_by_date[d]} for d in sorted_dates]
 
     return templates.TemplateResponse(
         "comments.html",
         {
             "request": request,
-            "posts": post_cards,
+            "grouped_posts": grouped_posts,
         },
     )
 

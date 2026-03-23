@@ -5,7 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -57,6 +57,10 @@ def create_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return Response(status_code=204)
 
     @app.middleware("http")
     async def security_middleware(request: Request, call_next):

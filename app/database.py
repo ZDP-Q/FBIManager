@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS posts (
     created_time TEXT,
     full_picture TEXT,
     permalink_url TEXT,
+    type TEXT NOT NULL DEFAULT '',
+    is_hidden INTEGER NOT NULL DEFAULT 0,
     raw_json TEXT NOT NULL,
     synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (page_id) REFERENCES page_profiles(page_id) ON DELETE CASCADE
@@ -60,13 +62,6 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_posts_page_id ON posts(page_id);
 CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments(parent_comment_id);
-
-CREATE TABLE IF NOT EXISTS insights (
-    target_id TEXT PRIMARY KEY,
-    target_type TEXT NOT NULL,
-    raw_json TEXT NOT NULL,
-    synced_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
 
 CREATE TABLE IF NOT EXISTS post_monitors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,12 +154,17 @@ def init_db() -> None:
     with get_connection() as connection:
         connection.executescript(SCHEMA_SQL)
 
-    # Migration: add type column to posts if it doesn't exist yet
+    # Migration: add columns if they don't exist yet
     with get_connection() as connection:
         try:
             connection.execute("ALTER TABLE posts ADD COLUMN type TEXT NOT NULL DEFAULT ''")
         except Exception:
-            pass  # column already exists
+            pass
+        
+        try:
+            connection.execute("ALTER TABLE posts ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
         
         try:
             connection.execute("ALTER TABLE model_configs ADD COLUMN prompt_template TEXT NOT NULL DEFAULT 'reply_prompt.j2'")

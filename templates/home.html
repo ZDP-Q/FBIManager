@@ -11,12 +11,43 @@
         <p class="page-subtitle">Facebook 主页连接状态与数据同步控制台</p>
     </div>
     <div class="page-actions">
-        <button class="btn btn-secondary btn-sm" id="btn-sync-insights">同步洞察数据</button>
-        <button class="btn btn-primary btn-sm" id="btn-sync">立即同步</button>
+        <!-- Buttons removed as requested -->
     </div>
 </div>
 
 <div id="home-alert" class="alert"></div>
+
+<!-- Profile (Moved to top) -->
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+        <span class="card-title">主页信息</span>
+        <span id="profile-sync-time" class="text-xs text-muted">-</span>
+    </div>
+    <div class="card-body">
+        <div class="profile-grid">
+            <div class="profile-field">
+                <label>主页名称</label>
+                <div class="val" id="profile-name">加载中...</div>
+            </div>
+            <div class="profile-field">
+                <label>分类</label>
+                <div class="val" id="profile-category">-</div>
+            </div>
+            <div class="profile-field">
+                <label>用户名</label>
+                <div class="val" id="profile-username">-</div>
+            </div>
+            <div class="profile-field">
+                <label>粉丝数</label>
+                <div class="val" id="profile-fans">-</div>
+            </div>
+            <div class="profile-field" style="grid-column:span 2">
+                <label>主页链接</label>
+                <div class="val"><a id="profile-link" href="#" target="_blank" rel="noreferrer">-</a></div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Settings -->
 <div class="card" style="margin-bottom:16px">
@@ -111,77 +142,6 @@
     </div>
 </div>
 
-<!-- Profile -->
-<div class="card" style="margin-bottom:16px">
-    <div class="card-header">
-        <span class="card-title">主页信息</span>
-        <span id="profile-sync-time" class="text-xs text-muted">-</span>
-    </div>
-    <div class="card-body">
-        <div class="profile-grid">
-            <div class="profile-field">
-                <label>主页名称</label>
-                <div class="val" id="profile-name">加载中...</div>
-            </div>
-            <div class="profile-field">
-                <label>分类</label>
-                <div class="val" id="profile-category">-</div>
-            </div>
-            <div class="profile-field">
-                <label>用户名</label>
-                <div class="val" id="profile-username">-</div>
-            </div>
-            <div class="profile-field">
-                <label>粉丝数</label>
-                <div class="val" id="profile-fans">-</div>
-            </div>
-            <div class="profile-field" style="grid-column:span 2">
-                <label>主页链接</label>
-                <div class="val"><a id="profile-link" href="#" target="_blank" rel="noreferrer">-</a></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Insights stats -->
-<div class="card" style="margin-bottom:16px">
-    <div class="card-header">
-        <span class="card-title">主页洞察数据</span>
-        <button class="btn btn-ghost btn-sm" id="btn-refresh-insights">刷新</button>
-    </div>
-    <div class="card-body">
-        <div class="stats-row" id="page-insights-grid">
-            <div class="stat-item">
-                <div class="stat-label">等待同步</div>
-                <div class="stat-value">-</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Sync controls -->
-<div class="card">
-    <div class="card-header">
-        <span class="card-title">自定义同步</span>
-    </div>
-    <div class="card-body">
-        <div class="sync-form">
-            <div class="form-group">
-                <label for="sync-limit">帖子数量（最多 100）</label>
-                <input type="number" id="sync-limit" min="1" max="100" value="20" style="width:100px">
-            </div>
-            <div class="form-group">
-                <label for="sync-since">开始时间（ISO 8601，可选）</label>
-                <input type="text" id="sync-since" placeholder="如 2026-01-01" style="width:160px">
-            </div>
-            <div class="form-group">
-                <label for="sync-until">结束时间（ISO 8601，可选）</label>
-                <input type="text" id="sync-until" placeholder="如 2026-03-17" style="width:160px">
-            </div>
-            <button class="btn btn-primary" id="btn-sync-custom">开始同步</button>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}

@@ -345,6 +345,26 @@ def list_posts(page_id: str | None = None, limit: int | None = None) -> list[dic
     return results
 
 
+def delete_posts(post_ids: list[str]) -> None:
+    if not post_ids:
+        return
+    placeholders = ",".join("?" for _ in post_ids)
+    with get_connection() as connection:
+        # Cascade delete will handle comments if foreign keys are enabled
+        connection.execute(
+            f"DELETE FROM posts WHERE id IN ({placeholders})",
+            post_ids,
+        )
+
+
+def clear_page_posts(page_id: str) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            "DELETE FROM posts WHERE page_id = ?",
+            (page_id,),
+        )
+
+
 def get_post(post_id: str) -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
@@ -406,28 +426,6 @@ def delete_comment_local(comment_id: str) -> None:
     with get_connection() as connection:
         connection.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
 
-
-def upsert_insights(target_id: str, target_type: str, data: list[dict[str, Any]]) -> None:
-    with get_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO insights (target_id, target_type, raw_json, synced_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(target_id) DO UPDATE SET
-                target_type = excluded.target_type,
-                raw_json = excluded.raw_json,
-                synced_at = CURRENT_TIMESTAMP
-            """,
-            (target_id, target_type, json.dumps(data, ensure_ascii=False)),
-        )
-
-
-def get_insights(target_id: str) -> list[dict[str, Any]]:
-    with get_connection() as connection:
-        row = connection.execute(
-            "SELECT raw_json FROM insights WHERE target_id = ?", (target_id,)
-        ).fetchone()
-    return json.loads(row["raw_json"]) if row else []
 
 
 # ---------------------------------------------------------------------------
