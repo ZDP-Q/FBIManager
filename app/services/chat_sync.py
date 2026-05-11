@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import AsyncGenerator
 
 from app.services.facebook import FacebookService
@@ -10,7 +11,9 @@ from app.repositories import (
     upsert_page_conversation, 
     bulk_upsert_conversation_messages,
     get_latest_conversation_update,
-    get_latest_message_time
+    get_latest_message_time,
+    get_conversation_updated_time,
+    check_message_exists
 )
 
 from app.registry import update_task_status
@@ -23,6 +26,15 @@ class ChatSyncService:
         self.semaphore = asyncio.Semaphore(5)  # Max 5 concurrent conversation fetches
         self.messages_synced = 0
         self.conversations_synced = 0
+
+    def _iso_to_unix(self, iso_str: str) -> int:
+        """Convert ISO 8601 string to Unix timestamp."""
+        try:
+            # Handle formats like 2023-10-27T10:00:00+0000
+            dt = datetime.fromisoformat(iso_str.replace("+0000", "+00:00"))
+            return int(dt.timestamp())
+        except Exception:
+            return 0
 
     async def sync_all_chats(self, page_id: str, full_sync: bool = False) -> AsyncGenerator[str, None]:
         """Progress generator for SSE. It starts the background worker if not already running."""
@@ -50,10 +62,13 @@ class ChatSyncService:
 
     async def _run_sync_worker(self, page_id: str, full_sync: bool):
         """The actual background worker performing the sync in two phases."""
-        since_conv = ""
+        since_conv_iso = ""
+        since_conv_ts = 0
         if not full_sync:
-            since_conv = get_latest_conversation_update(page_id) or ""
-            logger.info("[chat_sync] Incremental sync since: %s", since_conv)
+            since_conv_iso = get_latest_conversation_update(page_id) or ""
+            if since_conv_iso:
+                since_conv_ts = self._iso_to_unix(since_conv_iso)
+                logger.info("[chat_sync] Incremental sync since: %s (%s)", since_conv_iso, since_conv_ts)
         else:
             logger.info("[chat_sync] FORCING FULL SYNC - Scanning all folders for Page: %s", page_id)
         
@@ -72,17 +87,17 @@ class ChatSyncService:
             # --- Phase 1: Discovery ---
             for folder in folders:
                 after = ""
-                folder_count = 0
+                stop_folder_sync = False
                 logger.info("[chat_sync] Phase 1 - Scanning folder: %s", folder)
                 
-                while True:
+                while not stop_folder_sync:
                     params = {
-                        "fields": "id,updated_time,unread_count,participants",
-                        "limit": 100,
+                        "fields": "id,updated_time,unread_count,participants{id,name,picture}",
+                        "limit": 50,
                         "folder": folder
                     }
                     if after: params["after"] = after
-                    if since_conv: params["since"] = since_conv
+                    if since_conv_ts: params["since"] = str(since_conv_ts)
                     
                     payload = await self.fb._request('GET', f"{target}/conversations", params=params)
                     data = payload.get("data", [])
@@ -91,19 +106,33 @@ class ChatSyncService:
 
                     for conv in data:
                         conv_id = conv["id"]
+                        updated_time = conv.get("updated_time")
+                        
+                        # Always update/upsert the conversation to capture new metadata (like picture)
                         if conv_id not in discovered_conv_set:
                             discovered_conv_set.add(conv_id)
-                            folder_count += 1
                             upsert_page_conversation(
                                 conv_id=conv_id,
                                 page_id=page_id,
-                                updated_time=conv.get("updated_time"),
+                                updated_time=updated_time,
                                 unread_count=conv.get("unread_count", 0),
                                 participants_json=json.dumps(conv.get("participants", {}))
                             )
+
+                        # True Incremental Check: If conversation exists and updated_time matches, stop discovery
+                        if not full_sync:
+                            stored_updated = get_conversation_updated_time(conv_id)
+                            if stored_updated == updated_time:
+                                # We've hit a conversation that hasn't changed since last sync
+                                # Since they are newest-first, we can stop scanning this folder
+                                stop_folder_sync = True
+                                break
                     
+                    if stop_folder_sync:
+                        break
+
                     update_task_status("chat_sync", {
-                        "msg": f"阶段 1: 扫描目录 [{folder}] - 已发现 {len(discovered_conv_set)} 个会话...",
+                        "msg": f"阶段 1: 扫描目录 [{folder}] - 已发现 {len(discovered_conv_set)} 个活跃会话...",
                         "percent": 10,
                         "done": False
                     })
@@ -115,14 +144,20 @@ class ChatSyncService:
             
             discovered_conv_ids = list(discovered_conv_set)
             total_convs = len(discovered_conv_ids)
-            logger.info("[chat_sync] Phase 1 complete. Unique conversations found: %d", total_convs)
+            logger.info("[chat_sync] Phase 1 complete. Conversations to sync: %d", total_convs)
             
             if total_convs == 0:
-                update_task_status("chat_sync", {"msg": "没有发现需要同步的新会话。", "percent": 100, "done": True})
+                update_task_status("chat_sync", {
+                    "msg": "没有发现需要同步的新会话。", 
+                    "percent": 100, 
+                    "done": True,
+                    "conversations": 0,
+                    "messages": 0
+                })
                 return
 
             # --- Phase 2: Message Sync ---
-            status_msg = f"阶段 2/2: 正在拉取 {total_convs} 个会话的消息内容..."
+            status_msg = f"阶段 2/2: 正在同步 {total_convs} 个会话的消息..."
             update_task_status("chat_sync", {"msg": status_msg, "percent": 20, "done": False})
             
             pending = {
@@ -135,13 +170,13 @@ class ChatSyncService:
                 processed = self.conversations_synced
                 percent = 20 + int((processed / total_convs) * 80)
                 update_task_status("chat_sync", {
-                    "msg": f"正在拉取消息: {processed}/{total_convs} 会话...",
+                    "msg": f"正在同步消息: {processed}/{total_convs} 会话...",
                     "messages_synced": self.messages_synced,
                     "percent": min(99, percent),
                     "done": False
                 })
             
-            final_msg = f"同步完成！共处理 {total_convs} 个会话，新增/更新 {self.messages_synced} 条消息。"
+            final_msg = f"同步完成！处理了 {total_convs} 个会话，新增/更新 {self.messages_synced} 条消息。"
             update_task_status("chat_sync", {
                 "msg": final_msg, 
                 "done": True, 
@@ -163,28 +198,48 @@ class ChatSyncService:
     async def _sync_messages_for_conversation(self, conv_id: str, full_sync: bool) -> int:
         count = 0
         after = ""
-        since_msg = ""
+        since_msg_ts = 0
         if not full_sync:
-            since_msg = get_latest_message_time(conv_id) or ""
+            since_msg_iso = get_latest_message_time(conv_id) or ""
+            if since_msg_iso:
+                since_msg_ts = self._iso_to_unix(since_msg_iso)
             
         while True:
             try:
-                payload = await self.fb.fetch_messages(conv_id, limit=100, after=after, since=since_msg)
+                params = {
+                    "limit": 100
+                }
+                if after: params["after"] = after
+                if since_msg_ts: params["since"] = str(since_msg_ts)
+
+                payload = await self.fb.fetch_messages(conv_id, **params)
                 data = payload.get("data", [])
                 if not data:
                     break
                 
                 batch_messages = []
+                stop_message_sync = False
+                
                 for msg in data:
+                    msg_id = msg["id"]
+                    
+                    # True Incremental Check: If message exists, stop fetching for this conversation
+                    if not full_sync and check_message_exists(msg_id):
+                        stop_message_sync = True
+                        break
+                        
                     text = self._filter_message_content(msg)
                     sender = msg.get("from", {})
                     batch_messages.append((
-                        msg["id"], conv_id, text, sender.get("id"), sender.get("name"), msg.get("created_time")
+                        msg_id, conv_id, text, sender.get("id"), sender.get("name"), msg.get("created_time")
                     ))
                     count += 1
                 
                 if batch_messages:
                     bulk_upsert_conversation_messages(batch_messages)
+                
+                if stop_message_sync:
+                    break
                     
                 paging = payload.get("paging", {})
                 after = paging.get("cursors", {}).get("after")
