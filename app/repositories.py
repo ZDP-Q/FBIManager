@@ -1121,14 +1121,16 @@ def get_user_message_counts(page_id: str, limit: int = 50) -> list[dict[str, Any
 
 
 def get_chat_detailed_stats(page_id: str) -> dict[str, Any]:
-    """Calculate Max, Min, Median, Average for messages and streaks per user."""
+    """Calculate Max, Min, Median, Average for messages and streaks per user.
+    Excludes the page's own messages to reflect actual user activity.
+    """
     with get_connection() as connection:
-        # 1. Message counts per user
+        # 1. Message counts per user (Excluding page replies)
         msg_counts = connection.execute(
             """
             SELECT COUNT(m.id) as cnt
             FROM page_conversations c
-            LEFT JOIN conversation_messages m ON c.id = m.conversation_id
+            LEFT JOIN conversation_messages m ON c.id = m.conversation_id AND m.sender_id != c.page_id
             WHERE c.page_id = ?
             GROUP BY c.id
             """,
@@ -1155,12 +1157,12 @@ def get_chat_detailed_stats(page_id: str) -> dict[str, Any]:
         }
 
         # 2. Tiered Streaks based on user activity
-        # Get msg count per conversation for ranking
+        # Get user msg count per conversation for ranking (Excluding page replies)
         conv_msg_counts = connection.execute(
             """
             SELECT c.id, COUNT(m.id) as cnt
             FROM page_conversations c
-            LEFT JOIN conversation_messages m ON c.id = m.conversation_id
+            LEFT JOIN conversation_messages m ON c.id = m.conversation_id AND m.sender_id != c.page_id
             WHERE c.page_id = ?
             GROUP BY c.id
             """, (page_id,)
@@ -1177,14 +1179,14 @@ def get_chat_detailed_stats(page_id: str) -> dict[str, Any]:
             "all": 0
         }
 
-        # Get all streaks with conversation_id
+        # Get all streaks with conversation_id (Excluding page replies)
         streak_data_rows = connection.execute(
             """
             WITH dates AS (
                 SELECT DISTINCT date(substr(m.created_time, 1, 10)) as d, conversation_id 
                 FROM conversation_messages m
                 JOIN page_conversations c ON m.conversation_id = c.id
-                WHERE c.page_id = ? AND m.created_time IS NOT NULL
+                WHERE c.page_id = ? AND m.created_time IS NOT NULL AND m.sender_id != c.page_id
             ),
             groups AS (
                 SELECT d, conversation_id,
@@ -1212,17 +1214,19 @@ def get_chat_detailed_stats(page_id: str) -> dict[str, Any]:
             subset = [r["streak_len"] for r in streak_data_rows if msg_map.get(r["conversation_id"], 0) >= threshold]
             streak_stats[label] = calc_stats(subset)
 
-        # 3. Distribution of "Total Active Days per User"
+        # 3. Distribution of "Total Active Days per User" (Excluding page replies)
         user_active_days_map = connection.execute(
             """
-            SELECT conversation_id, COUNT(DISTINCT date(substr(created_time, 1, 10))) as days
-            FROM conversation_messages
-            GROUP BY conversation_id
-            """, ()
+            SELECT c.id, COUNT(DISTINCT date(substr(m.created_time, 1, 10))) as days
+            FROM page_conversations c
+            LEFT JOIN conversation_messages m ON c.id = m.conversation_id AND m.sender_id != c.page_id
+            WHERE c.page_id = ?
+            GROUP BY c.id
+            """, (page_id,)
         ).fetchall()
         
         user_active_days = sorted([r["days"] for r in user_active_days_map]) if user_active_days_map else [0]
-        user_active_days_dict = {r["conversation_id"]: r["days"] for r in user_active_days_map}
+        user_active_days_dict = {r["id"]: r["days"] for r in user_active_days_map}
         
         # Histograms for various tiers (Frequency distribution of Total Active Days per User)
         histograms = {}
@@ -1275,3 +1279,49 @@ def get_chat_detailed_stats(page_id: str) -> dict[str, Any]:
         "histograms": histograms,
         "all_msg_counts_sorted": counts[::-1] # counts is already sorted asc, so reverse it
     }
+
+
+def get_user_ranking_stats(page_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    """
+    Retrieve user-level statistics: Name, total message count (including page replies), 
+    and unique active days. Sorted by total message count descending.
+    """
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT 
+                c.id as conversation_id,
+                c.participants_json,
+                COUNT(m.id) as total_message_count,
+                COUNT(DISTINCT date(substr(m.created_time, 1, 10))) as total_active_days
+            FROM page_conversations c
+            LEFT JOIN conversation_messages m ON c.id = m.conversation_id
+            WHERE c.page_id = ?
+            GROUP BY c.id
+            ORDER BY total_message_count DESC
+            LIMIT ?
+            """,
+            (page_id, limit),
+        ).fetchall()
+    
+    results = []
+    for row in rows:
+        participants = []
+        try:
+            p_data = json.loads(row["participants_json"] or "{}")
+            participants = p_data.get("data", [])
+        except Exception:
+            pass
+        
+        user_name = "未知用户"
+        for p in participants:
+            if str(p.get("id")) != page_id:
+                user_name = p.get("name", user_name)
+                break
+        
+        results.append({
+            "name": user_name,
+            "message_count": row["total_message_count"],
+            "active_days": row["total_active_days"]
+        })
+    return results

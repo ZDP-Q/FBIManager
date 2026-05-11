@@ -594,6 +594,14 @@ async def get_chat_stats_api():
     }
 
 
+@router.get("/chats/user-ranking")
+async def get_chat_user_ranking_api(limit: int = 100):
+    from app.repositories import get_user_ranking_stats
+    config = load_config()
+    page_id = get_canonical_page_id(config.page_id)
+    return get_user_ranking_stats(page_id, limit=limit)
+
+
 from app.registry import get_task_status
 
 @router.get("/sync/status")

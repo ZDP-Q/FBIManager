@@ -11,175 +11,49 @@ async function loadDashboard() {
         if (!r.ok) throw new Error('获取统计数据失败');
         const data = await r.json();
         
-        // 1. Update Top Hero Stats
+        // Update Hero Stats
         const s = data.stats;
         document.getElementById('stat-total-users').textContent = (s.total_users || 0).toLocaleString();
         document.getElementById('stat-total-messages').textContent = (s.total_messages || 0).toLocaleString();
         document.getElementById('stat-longest-msg').textContent = (s.longest_msg_count || 0).toLocaleString();
-        document.getElementById('stat-longest-duration').textContent = (s.longest_duration_days || 0) + 'd';
-        document.getElementById('stat-max-streak').textContent = (s.max_streak || 0) + 'd';
         
-        // 2. Update Detailed Distribution Stats
-        if (data.detailed_stats) {
-            updateDetailedStats(data.detailed_stats);
-        }
+        // Load User Ranking
+        loadUserRanking();
     } catch (e) {
         showAlert(e.message, 'error');
     }
 }
 
-function updateDetailedStats(detailed) {
-    // Message Stats per user
-    document.getElementById('msg-max').textContent = detailed.messages.max.toLocaleString();
-    document.getElementById('msg-min').textContent = detailed.messages.min.toLocaleString();
-    document.getElementById('msg-avg').textContent = detailed.messages.avg.toLocaleString();
-    document.getElementById('msg-median').textContent = detailed.messages.median.toLocaleString();
-    document.getElementById('msg-p99').textContent = detailed.messages.p99.toLocaleString();
-    document.getElementById('msg-p95').textContent = detailed.messages.p95.toLocaleString();
-    document.getElementById('msg-p90').textContent = detailed.messages.p90.toLocaleString();
-    document.getElementById('msg-p80').textContent = detailed.messages.p80.toLocaleString();
+async function loadUserRanking() {
+    const limitInput = document.getElementById('input-ranking-limit');
+    const limit = limitInput ? limitInput.value : 100;
+    const body = document.getElementById('user-ranking-body');
+    if (!body) return;
 
-    // Total Active Days Distribution
-    if (detailed.active_days_dist) {
-        const d = detailed.active_days_dist;
-        document.getElementById('active-days-max').textContent = d.max + ' 天';
-        document.getElementById('active-days-avg').textContent = d.avg + ' 天';
-        document.getElementById('active-days-median').textContent = d.median + ' 天';
-        document.getElementById('active-days-p99').textContent = d.p99 + ' 天';
-        document.getElementById('active-days-p95').textContent = d.p95 + ' 天';
-        document.getElementById('active-days-p90').textContent = d.p90 + ' 天';
-        document.getElementById('active-days-p80').textContent = d.p80 + ' 天';
-    }
+    try {
+        const r = await fetch(`/api/chats/user-ranking?limit=${limit}`);
+        if (!r.ok) throw new Error('获取排名数据失败');
+        const data = await r.json();
 
-    // Tiered Streak Stats
-    const body = document.getElementById('streak-tiered-body');
-    body.innerHTML = '';
-    
-    const labels = {
-        'all': '全部用户 (All)',
-        'p80': 'Top 20% (P80)',
-        'p90': 'Top 10% (P90)',
-        'p95': 'Top 5% (P95)',
-        'p99': 'Top 1% (P99)'
-    };
-    
-    // Sort keys to show All then P80 down to P99 (or vice versa, let's do All -> P80 -> P90 -> P95 -> P99)
-    ['all', 'p80', 'p90', 'p95', 'p99'].forEach(key => {
-        if (detailed.streaks[key]) {
-            const s = detailed.streaks[key];
+        body.innerHTML = '';
+        if (data.length === 0) {
+            body.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 40px;">暂无数据</td></tr>';
+            return;
+        }
+
+        data.forEach((user, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <th>${labels[key]}</th>
-                <td class="stat-highlight">${s.max} 天</td>
-                <td>${s.min} 天</td>
-                <td>${s.avg} 天</td>
-                <td>${s.median} 天</td>
+                <td style="color: var(--text-muted); font-size: 13px;">${index + 1}</td>
+                <td>${user.name || '未知用户'}</td>
+                <td class="stat-highlight">${user.message_count.toLocaleString()}</td>
+                <td>${user.active_days} 天</td>
             `;
             body.appendChild(tr);
-        }
-    });
-
-    // Multi-Tier Average Streak Distribution Charts
-    if (detailed.histograms) {
-        Object.keys(detailed.histograms).forEach(label => {
-            renderStreakChart(`${label}-streak-chart`, detailed.histograms[label]);
         });
+    } catch (e) {
+        console.error('Failed to load user ranking:', e);
     }
-
-    // Message Count Ranking Chart
-    if (detailed.all_msg_counts_sorted) {
-        renderMsgRankingChart(detailed.all_msg_counts_sorted);
-    }
-}
-
-let msgRankingChart = null;
-function renderMsgRankingChart(counts) {
-    const chartDom = document.getElementById('all-msg-ranking-chart');
-    if (!msgRankingChart) {
-        msgRankingChart = echarts.init(chartDom);
-    }
-
-    const labels = counts.map((_, i) => (i + 1).toString());
-    
-    const option = {
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'line' },
-            formatter: function(params) {
-                return `排名: ${params[0].name}<br/>消息数: ${params[0].value.toLocaleString()}`;
-            }
-        },
-        dataZoom: [
-            { type: 'inside', start: 0, end: 10 },
-            { type: 'slider', start: 0, end: 10 }
-        ],
-        grid: {
-            left: '3%', right: '4%', bottom: '15%', containLabel: true
-        },
-        xAxis: {
-            type: 'category',
-            data: labels,
-            name: '用户排名',
-            axisLabel: { show: labels.length < 50 } // Hide labels if too many
-        },
-        yAxis: {
-            type: 'value',
-            name: '消息数量'
-        },
-        series: [{
-            data: counts,
-            type: 'bar',
-            itemStyle: { color: '#4e73df' },
-            large: true // Optimize for many bars
-        }]
-    };
-    msgRankingChart.setOption(option);
-}
-
-let streakCharts = {};
-function renderStreakChart(domId, hist) {
-    const chartDom = document.getElementById(domId);
-    if (!chartDom) return;
-
-    if (!streakCharts[domId]) {
-        streakCharts[domId] = echarts.init(chartDom);
-    }
-    
-    const option = {
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'shadow' }
-        },
-        grid: {
-            left: '3%', right: '4%', bottom: '10%', containLabel: true
-        },
-        xAxis: [
-            {
-                type: 'category',
-                data: hist.labels,
-                axisTick: { alignWithLabel: true },
-                axisLabel: { interval: 0, rotate: 30 }
-            }
-        ],
-        yAxis: [
-            {
-                type: 'value',
-                name: '用户数'
-            }
-        ],
-        series: [
-            {
-                name: '用户数',
-                type: 'bar',
-                barWidth: '60%',
-                data: hist.values,
-                itemStyle: {
-                    color: '#4e73df'
-                }
-            }
-        ]
-    };
-    streakCharts[domId].setOption(option);
 }
 
 function startSync(isFull = false) {
@@ -282,4 +156,8 @@ async function checkOngoingSync() {
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboard();
     checkOngoingSync();
+
+    document.getElementById('btn-refresh-ranking')?.addEventListener('click', () => {
+        loadUserRanking();
+    });
 });
