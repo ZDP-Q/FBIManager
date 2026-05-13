@@ -114,25 +114,52 @@ async function loadProfile() {
         const r = await fetch('/api/page-profile');
         if (!r.ok) throw new Error((await r.json()).detail || '获取主页信息失败');
         const p = await r.json();
-        const nameEl = document.getElementById('profile-name');
-        if (nameEl) nameEl.textContent = p.name || '未命名';
-        const catEl = document.getElementById('profile-category');
-        if (catEl) catEl.textContent = p.category || '-';
-        const userEl = document.getElementById('profile-username');
-        if (userEl) userEl.textContent = p.username || '-';
-        const fansEl = document.getElementById('profile-fans');
-        if (fansEl) fansEl.textContent = p.fan_count ?? '-';
-        const link = document.getElementById('profile-link');
-        if (link) {
-            link.textContent = p.link || '-';
-            link.href = p.link || '#';
-        }
-        const syncEl = document.getElementById('profile-sync-time');
-        if (syncEl) syncEl.textContent = `同步于 ${p.synced_at || '-'}`;
+        renderProfile(p);
     } catch (e) {
         showAlert(e.message, 'warning');
     }
 }
+
+function renderProfile(p) {
+    const nameEl = document.getElementById('profile-name');
+    if (nameEl) nameEl.textContent = p.name || '未命名';
+    const catEl = document.getElementById('profile-category');
+    if (catEl) catEl.textContent = p.category || '-';
+    const userEl = document.getElementById('profile-username');
+    if (userEl) userEl.textContent = p.username || '-';
+    const fansEl = document.getElementById('profile-fans');
+    if (fansEl) {
+        const count = p.fan_count;
+        fansEl.textContent = typeof count === 'number' ? count.toLocaleString('zh-CN') : (count ?? '-');
+    }
+    const link = document.getElementById('profile-link');
+    if (link) {
+        link.textContent = p.link || '-';
+        link.href = p.link || '#';
+    }
+    const syncEl = document.getElementById('profile-sync-time');
+    if (syncEl) syncEl.textContent = `同步于 ${p.synced_at || '-'}`;
+}
+
+async function refreshProfile() {
+    const btn = document.getElementById('btn-profile-refresh');
+    btn.disabled = true;
+    btn.textContent = '刷新中...';
+    try {
+        const r = await fetch('/api/page-profile/refresh', { method: 'POST' });
+        if (!r.ok) throw new Error((await r.json()).detail || '刷新失败');
+        const p = await r.json();
+        renderProfile(p);
+        showAlert('主页信息已更新。', 'success');
+    } catch (e) {
+        showAlert(e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '刷新主页信息';
+    }
+}
+
+document.getElementById('btn-profile-refresh')?.addEventListener('click', refreshProfile);
 
 document.getElementById('account-select')?.addEventListener('change', (e) => {
     settingsState.selectedAccountId = Number(e.target.value || 0) || null;

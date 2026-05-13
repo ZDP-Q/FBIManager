@@ -89,6 +89,32 @@
         color: var(--accent) !important;
         font-weight: 700 !important;
     }
+    .user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: var(--surface-3);
+        border: 1px solid var(--border);
+    }
+    .user-avatar-fallback {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 13px;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+        flex-shrink: 0;
+    }
+    .user-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
 </style>
 {% endblock %}
 
@@ -146,8 +172,8 @@
         <table class="stats-table">
             <thead>
                 <tr style="position: sticky; top: 0; background: var(--surface-1); z-index: 1;">
-                    <th style="width: 10%;">排名</th>
-                    <th style="width: 40%;">姓名</th>
+                    <th style="width: 8%;">排名</th>
+                    <th style="width: 42%;">用户</th>
                     <th style="width: 25%;">聊天条数</th>
                     <th style="width: 25%;">活跃天数</th>
                 </tr>

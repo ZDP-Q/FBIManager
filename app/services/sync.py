@@ -54,11 +54,15 @@ class SyncService:
             return
 
         try:
-            update_task_status("post_sync", {"msg": "正在获取主页基本信息...", "percent": 5, "done": False})
-            profile = await self.facebook.fetch_page_profile()
-            upsert_page_profile(profile)
+            from app.repositories import get_page_profile
+            # 优先使用本地已有的主页信息，不再强制每次同步都请求 Facebook
+            profile = get_page_profile(page_id=self.config.page_id)
+            if not profile:
+                update_task_status("post_sync", {"msg": "正在获取主页基本信息...", "percent": 5, "done": False})
+                profile = await self.facebook.fetch_page_profile()
+                upsert_page_profile(profile)
             
-            canonical_page_id = str(profile.get("id", ""))
+            canonical_page_id = str(profile.get("page_id") or profile.get("id") or "")
             normalized_all_posts = all_posts or post_limit <= 0
             
             status_msg = f"正在获取帖子列表 (limit={post_limit if not normalized_all_posts else '全部'})..."
@@ -122,9 +126,13 @@ class SyncService:
             return {"status": "skipped", "reason": "default-page"}
         
         logger.info("[sync] start syncing single post=%s", post_id)
-        profile = await self.facebook.fetch_page_profile()
-        upsert_page_profile(profile)
-        canonical_page_id = str(profile.get("id", ""))
+        from app.repositories import get_page_profile
+        profile = get_page_profile(page_id=self.config.page_id)
+        if not profile:
+            profile = await self.facebook.fetch_page_profile()
+            upsert_page_profile(profile)
+        
+        canonical_page_id = str(profile.get("page_id") or profile.get("id") or "")
 
         post = await self.facebook.fetch_post(post_id)
         if not self._is_post_from_current_page(post, canonical_page_id):

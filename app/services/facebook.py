@@ -247,7 +247,7 @@ class FacebookService:
         """Fetch list of conversations for a page, specifying folder."""
         target = page_id or "me"
         params = {
-            "fields": "id,updated_time,unread_count,participants",
+            "fields": "id,updated_time,unread_count,participants{id,name,picture}",
             "limit": min(limit, 100),
             "folder": folder
         }
@@ -262,7 +262,7 @@ class FacebookService:
     async def fetch_messages(self, conversation_id: str, limit: int = 50, after: str = "", since: str = "") -> dict[str, Any]:
         """Fetch messages within a specific conversation."""
         params = {
-            "fields": "id,message,from,created_time,attachments,sticker",
+            "fields": "id,message,from{id,name,picture},created_time,attachments,sticker",
             "limit": min(limit, 100),
         }
         if after:

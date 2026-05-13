@@ -24,6 +24,35 @@ async function loadDashboard() {
     }
 }
 
+function getAvatarHtml(user) {
+    if (user.avatar_url) {
+        return `<img src="${user.avatar_url}" class="user-avatar" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="user-avatar-fallback" style="display:none; background:${getAvatarColor(user.name)}">${getInitials(user.name)}</div>`;
+    }
+    return `<div class="user-avatar-fallback" style="background:${getAvatarColor(user.name)}">${getInitials(user.name)}</div>`;
+}
+
+function getInitials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 1).toUpperCase();
+}
+
+function getAvatarColor(name) {
+    const colors = [
+        '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#d97706', '#059669', '#0891b2'
+    ];
+    if (!name) return colors[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+}
+
 async function loadUserRanking() {
     const limitInput = document.getElementById('input-ranking-limit');
     const limit = limitInput ? limitInput.value : 100;
@@ -45,7 +74,15 @@ async function loadUserRanking() {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td style="color: var(--text-muted); font-size: 13px;">${index + 1}</td>
-                <td>${user.name || '未知用户'}</td>
+                <td>
+                    <div class="user-info">
+                        ${getAvatarHtml(user)}
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-weight: 600;">${user.name || '未知用户'}</span>
+                            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ${user.user_id}</span>
+                        </div>
+                    </div>
+                </td>
                 <td class="stat-highlight">${user.message_count.toLocaleString()}</td>
                 <td>${user.active_days} 天</td>
             `;

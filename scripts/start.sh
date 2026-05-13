@@ -16,15 +16,18 @@ if [ -z "$ADMIN_PASSWORD" ]; then
     echo "Using default ADMIN_PASSWORD"
 fi
 
+# 设置 PYTHONPATH 包含 venv 的 site-packages，避免 uv run 失败
+export PYTHONPATH="/app:/app/.venv/lib/python3.12/site-packages:$PYTHONPATH"
+
 # 执行初始化/重置密码逻辑
-echo "Running reset_pwd.py using uv..."
-uv run python reset_pwd.py
+echo "Running reset_pwd.py..."
+python reset_pwd.py
 
 # 启动主程序
 echo "Starting application..."
 # 如果在容器内运行且作为 PID 1，使用 exec 以正确处理信号
 if [ -f /.dockerenv ]; then
-    exec uv run python main.py
+    exec python main.py
 else
-    uv run python main.py
+    python main.py
 fi

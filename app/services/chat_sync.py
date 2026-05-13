@@ -92,7 +92,7 @@ class ChatSyncService:
                 
                 while not stop_folder_sync:
                     params = {
-                        "fields": "id,updated_time,unread_count,participants{id,name,picture}",
+                        "fields": "id,updated_time,unread_count,participants{id,name,picture.width(100).height(100)}",
                         "limit": 50,
                         "folder": folder
                     }

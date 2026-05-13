@@ -1314,14 +1314,38 @@ def get_user_ranking_stats(page_id: str, limit: int = 100) -> list[dict[str, Any
             pass
         
         user_name = "未知用户"
+        user_id = ""
+        avatar_url = ""
         for p in participants:
             if str(p.get("id")) != page_id:
                 user_name = p.get("name", user_name)
+                user_id = str(p.get("id", ""))
+                avatar_url = p.get("picture", {}).get("data", {}).get("url", "")
                 break
         
         results.append({
             "name": user_name,
+            "user_id": user_id,
+            "avatar_url": avatar_url,
             "message_count": row["total_message_count"],
             "active_days": row["total_active_days"]
         })
     return results
+
+
+def get_conversation_updated_time(conv_id: str) -> str | None:
+    """Get the stored updated_time for a specific conversation."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT updated_time FROM page_conversations WHERE id = ?", (conv_id,)
+        ).fetchone()
+        return row["updated_time"] if row else None
+
+
+def check_message_exists(msg_id: str) -> bool:
+    """Check if a message ID already exists in the database."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT 1 FROM conversation_messages WHERE id = ?", (msg_id,)
+        ).fetchone()
+        return bool(row)

@@ -299,6 +299,19 @@ async def page_profile():
     return profile
 
 
+@router.post("/page-profile/refresh")
+async def refresh_page_profile():
+    config = load_config()
+    facebook = FacebookService(config)
+    try:
+        profile = await facebook.fetch_page_profile()
+        from app.repositories import upsert_page_profile
+        upsert_page_profile(profile)
+        return profile
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"刷新主页信息失败: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Sync
 # ---------------------------------------------------------------------------
