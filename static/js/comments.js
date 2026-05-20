@@ -235,13 +235,14 @@ window.addMonitor = async function(postId, btn) {
     }
 }
 
-async function doSync(limit, since, until, allPosts = false) {
+async function doSync(limit, since, until, allPosts = false, syncComments = true) {
     showAlert(`开始同步任务...`, 'info');
     showProgress("正在准备同步帖子...");
-    
-    const params = new URLSearchParams({ 
-        limit: limit.toString(), 
-        all_posts: allPosts.toString() 
+
+    const params = new URLSearchParams({
+        limit: limit.toString(),
+        all_posts: allPosts.toString(),
+        sync_comments: syncComments.toString()
     });
     if (since) params.append('since', since);
     if (until) params.append('until', until);
@@ -258,10 +259,10 @@ async function doSync(limit, since, until, allPosts = false) {
         }
         
         if (data.percent !== undefined) {
-            updateProgress(data.percent, data.status);
+            updateProgress(data.percent, data.msg);
         }
-        
-        if (data.status === "completed") {
+
+        if (data.done) {
             eventSource.close();
             updateProgress(100, "同步成功！");
             showAlert('同步完成，正在刷新页面...', 'success');
@@ -352,12 +353,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const limit = parseInt(document.getElementById('sync-limit')?.value || '20', 10);
         const since = document.getElementById('sync-since')?.value?.trim() || '';
         const until = document.getElementById('sync-until')?.value?.trim() || '';
-        doSync(limit, since, until);
+        doSync(limit, since, until, false, false);
     });
 
     // 2. 同步全量评论
     document.getElementById('btn-sync-comments')?.addEventListener('click', async (e) => {
-        doSync(0, "", "", true);
+        doSync(0, "", "", true, true);
     });
 
     // 3. 全选

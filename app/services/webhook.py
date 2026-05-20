@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.config import AppConfig
-from app.repositories import get_page_profile
+from app.repositories import get_page_profile, list_replied_for_post
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
 
@@ -59,11 +59,13 @@ class WebhookService:
                         post_message = ""
 
                 try:
+                    previous_replies = list_replied_for_post(post_id, limit=10) if post_id else []
                     ai_text = await self.ai.generate_reply(
                         page_name=page_profile.get("name", ""),
                         post_message=post_message,
                         comment_message=comment_message,
                         comment_author=sender_name,
+                        previous_replies=previous_replies,
                     )
                     await self.facebook.send_reply(comment_id, ai_text)
                     replied += 1

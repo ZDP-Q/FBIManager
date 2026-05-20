@@ -691,6 +691,23 @@ def list_replied_for_monitor(monitor_id: int, limit: int = 50) -> list[dict[str,
     return [dict(row) for row in rows]
 
 
+def list_replied_for_post(post_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT r.comment_id, r.post_id, r.reply_message, r.replied_at,
+                   c.message AS comment_message, c.author_name
+            FROM replied_comments r
+            INNER JOIN comments c ON r.comment_id = c.id
+            WHERE r.post_id = ?
+            ORDER BY r.replied_at DESC
+            LIMIT ?
+            """,
+            (post_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def upsert_comment(post_id: str, parent_comment_id: str | None, comment: dict[str, Any]) -> None:
     """Insert or update a single comment (used by monitor service for incremental updates)."""
     author = comment.get("from", {})

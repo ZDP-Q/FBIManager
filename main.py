@@ -24,8 +24,9 @@ app = create_app()
 
 if __name__ == "__main__":
     try:
-        # Enabled hot-reload for development convenience
-        uvicorn.run("main:app", host="0.0.0.0", port=38000, reload=True, log_level="info")
+        import os
+        enable_reload = os.getenv("ENABLE_RELOAD", "false").lower() in ("true", "1", "yes")
+        uvicorn.run("main:app", host="0.0.0.0", port=38000, reload=enable_reload, log_level="info")
     except (KeyboardInterrupt, SystemExit):
         # Graceful exit without printing Traceback noise
         pass

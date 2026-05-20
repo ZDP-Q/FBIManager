@@ -749,9 +749,13 @@ textarea { resize: vertical; min-height: 80px; }
 
 .monitor-detail-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 10px;
     margin-bottom: 14px;
+}
+.monitor-detail-item.status-wide {
+    grid-column: span 2;
+    min-width: 0;
 }
 
 .monitor-detail-item label { margin-bottom: 2px; }
@@ -1108,6 +1112,12 @@ textarea { resize: vertical; min-height: 80px; }
     height: 8px;
     border-radius: 4px;
     overflow: hidden;
+}
+.progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.3s ease;
 }
 /* === Auto-monitor Modal Enhancements === */
 .auto-monitor-config-section {

@@ -4,6 +4,22 @@ const POLL_INTERVAL_MS = 8000;
 let monitorPollTimer = null;
 const lastRunSnapshot = new Map();
 
+function formatBeijingTime(isoStr) {
+    if (!isoStr) return '从未';
+    try {
+        let s = String(isoStr).trim();
+        // SQLite CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS" without timezone — treat as UTC
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+            s = s.replace(' ', 'T') + 'Z';
+        }
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return isoStr;
+        return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    } catch {
+        return isoStr;
+    }
+}
+
 function showAlert(msg, type = 'info') {
     alertEl.textContent = msg;
     alertEl.className = `alert alert-${type} visible`;
@@ -66,7 +82,7 @@ function renderRepliedRows(id, rows) {
                         <td>${escHtml(row.author_name || '-')}</td>
                         <td class="td-truncate">${escHtml(row.comment_message || '-')}</td>
                         <td class="td-truncate">${escHtml(row.reply_message || '-')}</td>
-                        <td class="td-muted text-xs">${escHtml(row.replied_at || '-')}</td>
+                        <td class="td-muted text-xs">${formatBeijingTime(row.replied_at)}</td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -250,7 +266,7 @@ function applyMonitorState(monitor) {
     }
 
     const lastRun = document.getElementById(`last-run-${id}`);
-    if (lastRun) lastRun.textContent = monitor.last_run_at || '从未';
+    if (lastRun) lastRun.textContent = formatBeijingTime(monitor.last_run_at);
 
     const lastStatus = document.getElementById(`last-status-${id}`);
     if (lastStatus) lastStatus.textContent = monitor.last_run_status || '-';
@@ -363,6 +379,14 @@ async function loadActivePersona() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadActivePersona();
+
+    // Format initial server-rendered UTC timestamps to Beijing time
+    document.querySelectorAll('[id^="last-run-"]').forEach(el => {
+        el.textContent = formatBeijingTime(el.textContent);
+    });
+    document.querySelectorAll('.created-at-val').forEach(el => {
+        el.textContent = formatBeijingTime(el.textContent);
+    });
 
     // Auto-monitor modal
     const autoMonitorModal = document.getElementById('auto-monitor-modal');

@@ -330,13 +330,13 @@ async def sync_data(limit: int = 0, since: str = "", until: str = "", all_posts:
 
 
 @router.get("/sync/stream")
-async def sync_data_stream(limit: int = 0, since: str = "", until: str = "", all_posts: bool = True):
+async def sync_data_stream(limit: int = 0, since: str = "", until: str = "", all_posts: bool = True, sync_comments: bool = True):
     config = load_config()
     service = SyncService(config)
 
     async def event_generator():
         try:
-            async for step in service.sync_all_gen(post_limit=limit, since=since, until=until, all_posts=all_posts):
+            async for step in service.sync_all_gen(post_limit=limit, since=since, until=until, all_posts=all_posts, sync_comments=sync_comments):
                 # Format as SSE event
                 yield f"data: {json.dumps(step, ensure_ascii=False)}\n\n"
         except Exception as exc:

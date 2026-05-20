@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -46,6 +47,7 @@ def _build_user_prompt(
     comment_message: str,
     author_name: str,
     parent_comment_message: str = "",
+    previous_replies: list[dict[str, Any]] | None = None,
     template_name: str = "reply_prompt.j2",
 ) -> str:
     try:
@@ -65,6 +67,7 @@ def _build_user_prompt(
         comment_message=comment_message,
         author_name=author_name,
         parent_comment_message=parent_comment_message,
+        previous_replies=previous_replies or [],
     ).strip()
 
 
@@ -100,6 +103,7 @@ class AIReplyService:
         comment_message: str,
         comment_author: str,
         parent_comment_message: str = "",
+        previous_replies: list[dict[str, Any]] | None = None,
     ) -> str:
         if not self.config.ai_enabled:
             raise RuntimeError("AI 配置不完整，请先在 config.json 中填写 AI_API_BASE_URL、AI_API_KEY 和 AI_MODEL")
@@ -110,6 +114,7 @@ class AIReplyService:
             comment_message=comment_message,
             author_name=comment_author,
             parent_comment_message=parent_comment_message,
+            previous_replies=previous_replies,
             template_name=self.config.prompt_template,
         )
 
@@ -219,3 +224,50 @@ class AIReplyService:
                 return "连接成功！AI 已响应。"
             except httpx.RequestError as exc:
                 raise RuntimeError(f"网络请求失败: {exc}") from exc
+
+    async def screen_comment(
+        self,
+        *,
+        comment_message: str,
+        comment_author: str,
+    ) -> bool:
+        """Lightweight LLM call to decide if a comment is worth replying to.
+
+        Returns True if the comment has conversion potential, False to skip.
+        Fails open (returns True on any error).
+        """
+        if not self.config.ai_enabled:
+            return True
+
+        prompt = (
+            "你是一个评论筛选助手。判断以下Facebook评论是否有较高的互动转化潜力（用户可能点击私聊链接）。\n\n"
+            "回复规则：\n"
+            "- 以下情况回复 SKIP：纯表情、垃圾广告、完全无关内容、只有一个字（如\"好\"\"ok\"\"nice\"）\n"
+            "- 以下情况回复 REPLY：有情感表达、提出问题、表达兴趣、调情/互动、任何有对话潜力的评论\n\n"
+            "只回复一个词：REPLY 或 SKIP\n\n"
+            f"用户 {comment_author} 说：{comment_message}"
+        )
+
+        payload = {
+            "model": self.config.ai_model,
+            "temperature": 0.1,
+            "max_tokens": 10,
+            "stream": False,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.config.ai_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+                if response.status_code >= 400:
+                    return True  # fail-open
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
+                return "REPLY" in content
+        except Exception:
+            return True  # fail-open

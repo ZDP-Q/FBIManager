@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import random
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,6 +14,7 @@ from app.repositories import (
     get_post,
     has_replied,
     list_monitors,
+    list_replied_for_post,
     mark_replied,
     unmark_replied,
     update_monitor,
@@ -173,6 +176,11 @@ class MonitorService:
     async def _safe_execute(self, monitor: dict[str, Any]) -> None:
         monitor_id = monitor["id"]
         self._running_monitors.add(monitor_id)
+        update_monitor(
+            monitor_id,
+            last_run_at=datetime.now(timezone.utc).isoformat(),
+            last_run_status="等待执行...",
+        )
         try:
             async with self._semaphore:
                 await self._execute_monitor(monitor)
@@ -203,7 +211,9 @@ class MonitorService:
         ai = AIReplyService(config)
 
         # 获取最新的评论（包含回复）
-        comments = await facebook.fetch_comments_for_post(post_id, limit=200)
+        logger.info("[monitor] monitor=%s: 正在获取评论...", monitor_id)
+        comments = await facebook.fetch_comments_for_post(post_id, limit=200, max_depth=3)
+        logger.info("[monitor] monitor=%s: 获取到 %d 条评论", monitor_id, len(comments))
 
         # 1. 识别并清理本地已删除的评论
         remote_comment_ids = set()
@@ -235,43 +245,116 @@ class MonitorService:
                 delete_comment_local(lid)
 
         # 2. 更新/插入最新评论到本地数据库
+        logger.info("[monitor] monitor=%s: 正在同步 %d 条评论到本地...", monitor_id, len(comments))
         for comment in comments:
             upsert_comment(post_id, None, comment)
+        logger.info("[monitor] monitor=%s: 评论同步完成", monitor_id)
 
         # 获取主页资料，用于获取主页名称和确认数字 ID
+        logger.info("[monitor] monitor=%s: 正在获取主页资料...", monitor_id)
         profile = get_page_profile(page_id=page_id) or {}
         # 最终确认使用的数字 Page ID
         canonical_page_id = str(profile.get("page_id") or page_id)
 
-        stats = {"replied": 0, "skipped": 0}
+        stats = {"replied": 0, "skipped": 0, "screened": 0, "total": 0}
 
-        # 递归处理所有评论
-        async def _process_recursive(current_comment: dict[str, Any], depth: int, parent_msg: str = ""):
-            # 1. 基础处理：尝试回复当前评论
+        # 立即更新运行状态，避免 UI 显示"从未执行"
+        update_monitor(
+            monitor_id,
+            last_run_at=datetime.now(timezone.utc).isoformat(),
+            last_run_status="运行中...",
+        )
+
+        # 获取该帖子的已回复历史，供 AI 避免重复内容
+        previous_replies = list_replied_for_post(post_id, limit=20)
+
+        # 展平所有评论为 flat list（保留 depth 和 parent_message）
+        logger.info("[monitor] monitor=%s: 正在展平评论...", monitor_id)
+        flat_comments: list[dict[str, Any]] = []
+        def _flatten(cs: list[dict[str, Any]], depth: int, parent_msg: str = ""):
+            for c in cs:
+                flat_comments.append({"comment": c, "depth": depth, "parent_message": parent_msg})
+                replies = c.get("replies", {}).get("data", [])
+                if replies:
+                    _flatten(replies, depth + 1, c.get("message", ""))
+        _flatten(comments, 1)
+
+        # 过滤掉主页自己的评论
+        candidates = []
+        for item in flat_comments:
+            c = item["comment"]
+            author = c.get("from", {})
+            author_id = str(author.get("id") or "")
+            author_name = author.get("name", "")
+            if author_id and canonical_page_id and author_id == canonical_page_id:
+                continue
+            if author_name and profile.get("name") and author_name == profile.get("name"):
+                continue
+            candidates.append(item)
+
+        logger.info("[monitor] monitor=%s: %d 条候选评论，开始 AI 筛选...", monitor_id, len(candidates))
+        stats["total"] = len(candidates)
+
+        # 第一轮：AI 批量筛选（并发，每条评论独立筛选）
+        async def _screen_one(item: dict[str, Any]) -> dict[str, Any] | None:
+            c = item["comment"]
+            msg = c.get("message", "")
+            author = c.get("from", {}).get("name", "匿名用户")
+            worth = await ai.screen_comment(comment_message=msg, comment_author=author)
+            return item if worth else None
+
+        screen_results = await asyncio.gather(*[_screen_one(item) for item in candidates])
+        passed = [item for item in screen_results if item is not None]
+        screened_count = len(candidates) - len(passed)
+        stats["screened"] = screened_count
+
+        # 限制回复数量不超过总评论的 30%
+        max_replies = max(1, math.ceil(len(candidates) * 0.3))
+        original_passed = len(passed)
+        if len(passed) > max_replies:
+            passed = passed[:max_replies]
+
+        logger.info("[monitor] monitor=%s: AI 筛选完成，通过 %d 条，跳过 %d 条，最终回复 %d 条 (上限 %d)",
+                    monitor_id, original_passed, screened_count, len(passed), max_replies)
+
+        # 更新状态
+        update_monitor(
+            monitor_id,
+            last_run_at=datetime.now(timezone.utc).isoformat(),
+            last_run_status=f"筛选完成，{len(passed)} 条待回复...",
+        )
+
+        # 随机打乱通过筛选的评论
+        random.shuffle(passed)
+
+        # 第二轮：对通过筛选的评论去重 + 回复
+        total_to_reply = len(passed)
+        for i, item in enumerate(passed):
+            if i > 0:
+                delay = random.uniform(10, 45)
+                await asyncio.sleep(delay)
+            # 更新进度状态
+            update_monitor(
+                monitor_id,
+                last_run_at=datetime.now(timezone.utc).isoformat(),
+                last_run_status=f"回复中 {i + 1}/{total_to_reply}（总评论 {stats['total']} | 已回复 {stats['replied']} | 跳过 {stats['skipped']}）",
+            )
             replied, skipped = await self._process_comment(
-                current_comment,
+                item["comment"],
                 post,
                 profile,
                 monitor_id,
                 facebook=facebook,
                 ai=ai,
-                depth=depth,
-                parent_message=parent_msg,
-                canonical_page_id=canonical_page_id
+                depth=item["depth"],
+                parent_message=item["parent_message"],
+                canonical_page_id=canonical_page_id,
+                previous_replies=previous_replies,
             )
             stats["replied"] += replied
             stats["skipped"] += skipped
 
-            # 2. 持续处理：即使深度很大，只要有回复就继续向下处理
-            replies = current_comment.get("replies", {}).get("data", [])
-            for reply in replies:
-                await _process_recursive(reply, depth + 1, current_comment.get("message", ""))
-
-        # 开始遍历顶层评论
-        for comment in comments:
-            await _process_recursive(comment, 1)
-
-        status_msg = f"OK: 已回复 {stats['replied']} 条，已跳过 {stats['skipped']} 条"
+        status_msg = f"总评论 {stats['total']} | 筛选掉 {stats['screened']} | 待回复 {len(passed)} | 已回复 {stats['replied']} | 跳过 {stats['skipped']}"
         finished_at = datetime.now().astimezone()
         update_monitor(
             monitor_id,
@@ -297,27 +380,19 @@ class MonitorService:
         ai: AIReplyService,
         depth: int,
         parent_message: str = "",
-        canonical_page_id: str = ""
+        canonical_page_id: str = "",
+        previous_replies: list[dict[str, Any]] | None = None,
     ) -> tuple[int, int]:
 
         comment_id = comment.get("id", "")
         if not comment_id:
             return 0, 0
 
-        # 1. 检查评论作者是否是主页自己 (防止自我回复)
         author = comment.get("from", {})
-        author_id = str(author.get("id") or "")
         author_name = author.get("name", "")
         page_name = profile.get("name", "")
 
-        if author_id and canonical_page_id and author_id == canonical_page_id:
-            return 0, 0 # 是主页发的评论，不计入统计，直接跳过
-        
-        # 兜底：如果 ID 匹配不到，匹配名字 (防止某些 API 版本不返回 ID)
-        if author_name and page_name and author_name == page_name:
-            return 0, 0
-
-        # 2. 检查主页是否已经回复过这条评论
+        # 1. 去重检查：是否已回复过
         if has_replied(comment_id):
             still_has_page_reply = await self._comment_has_page_reply(
                 comment=comment,
@@ -325,19 +400,17 @@ class MonitorService:
                 facebook=facebook,
             )
             if still_has_page_reply:
-                return 0, 1  # 已经回复过了，跳过
+                return 0, 1  # 已回复，跳过
 
-            # 本地记录已过期（回复可能被手动删了），清除记录允许重新回复
             try:
                 unmark_replied(comment_id)
             except Exception:
                 return 0, 1
 
-        # 再次确认远程状态 (双重保险)
         if await self._comment_has_page_reply(comment=comment, page_id=canonical_page_id, facebook=facebook):
             return 0, 1
 
-        # 3. 生成并发送回复
+        # 2. 生成并发送回复（AI 筛选已在第一轮完成）
         comment_message = comment.get("message", "")
         try:
             reply_message = await ai.generate_reply(
@@ -346,13 +419,14 @@ class MonitorService:
                 comment_message=comment_message,
                 comment_author=author_name or "匿名用户",
                 parent_comment_message=parent_message,
+                previous_replies=previous_replies,
             )
             await facebook.send_reply(comment_id, reply_message)
         except Exception as exc:
             logger.warning("[monitor] failed to reply to comment=%s: %s", comment_id, exc)
             return 0, 0
 
-        # 4. 记录已回复
+        # 3. 记录已回复
         try:
             mark_replied(comment_id, post.get("id", ""), monitor_id, reply_message)
         except Exception as exc:

@@ -69,13 +69,13 @@
                         <label>上次执行</label>
                         <div class="val" id="last-run-{{ m.id }}">{{ m.last_run_at or '从未' }}</div>
                     </div>
-                    <div class="monitor-detail-item">
+                    <div class="monitor-detail-item status-wide">
                         <label>执行状态</label>
                         <div class="val" id="last-status-{{ m.id }}">{{ m.last_run_status or '-' }}</div>
                     </div>
                     <div class="monitor-detail-item">
                         <label>创建时间</label>
-                        <div class="val">{{ m.created_at or '-' }}</div>
+                        <div class="val created-at-val">{{ m.created_at or '-' }}</div>
                     </div>
                     <div class="monitor-detail-item">
                         <label>帖子链接</label>

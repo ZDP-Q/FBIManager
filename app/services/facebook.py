@@ -187,7 +187,7 @@ class FacebookService:
             params={"fields": "id,message,created_time,permalink_url"},
         )
 
-    async def fetch_comments_for_post(self, post_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    async def fetch_comments_for_post(self, post_id: str, limit: int = 100, max_depth: int = 20) -> list[dict[str, Any]]:
         payload = await self._request(
             "GET",
             f"{post_id}/comments",
@@ -198,7 +198,7 @@ class FacebookService:
         )
         comments = payload.get("data", [])
         for comment in comments:
-            await self._populate_replies(comment, limit=limit, depth=1, max_depth=20)
+            await self._populate_replies(comment, limit=limit, depth=1, max_depth=max_depth)
         return comments
 
     async def fetch_replies_for_comment(self, comment_id: str, limit: int = 100) -> list[dict[str, Any]]:
