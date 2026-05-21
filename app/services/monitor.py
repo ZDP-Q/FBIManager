@@ -256,7 +256,7 @@ class MonitorService:
         # 最终确认使用的数字 Page ID
         canonical_page_id = str(profile.get("page_id") or page_id)
 
-        stats = {"replied": 0, "skipped": 0, "screened": 0, "total": 0}
+        stats = {"replied": 0, "skipped": 0, "screened": 0, "total": 0, "already": 0}
 
         # 立即更新运行状态，避免 UI 显示"从未执行"
         update_monitor(
@@ -279,8 +279,9 @@ class MonitorService:
                     _flatten(replies, depth + 1, c.get("message", ""))
         _flatten(comments, 1)
 
-        # 过滤掉主页自己的评论
+        # 过滤掉主页自己的评论 + 已回复过的评论
         candidates = []
+        already_replied_count = 0
         for item in flat_comments:
             c = item["comment"]
             author = c.get("from", {})
@@ -290,12 +291,19 @@ class MonitorService:
                 continue
             if author_name and profile.get("name") and author_name == profile.get("name"):
                 continue
+            # 跳过已在 replied_comments 表中的评论（节省 AI 筛选调用）
+            comment_id = c.get("id", "")
+            if comment_id and has_replied(comment_id):
+                already_replied_count += 1
+                continue
             candidates.append(item)
 
-        logger.info("[monitor] monitor=%s: %d 条候选评论，开始 AI 筛选...", monitor_id, len(candidates))
-        stats["total"] = len(candidates)
+        stats["already"] = already_replied_count
+        stats["total"] = len(candidates) + already_replied_count
+        logger.info("[monitor] monitor=%s: %d 条候选评论（%d 条已处理），开始 AI 筛选...",
+                    monitor_id, len(candidates), already_replied_count)
 
-        # 第一轮：AI 批量筛选（并发，每条评论独立筛选）
+        # AI 批量筛选（并发，每条评论独立筛选）
         async def _screen_one(item: dict[str, Any]) -> dict[str, Any] | None:
             c = item["comment"]
             msg = c.get("message", "")
@@ -321,7 +329,7 @@ class MonitorService:
         update_monitor(
             monitor_id,
             last_run_at=datetime.now(timezone.utc).isoformat(),
-            last_run_status=f"筛选完成，{len(passed)} 条待回复...",
+            last_run_status=f"筛选完成，{len(passed)} 条待回复（已处理 {stats['already']} | 筛选 {stats['screened']}）...",
         )
 
         # 随机打乱通过筛选的评论
@@ -337,9 +345,9 @@ class MonitorService:
             update_monitor(
                 monitor_id,
                 last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_run_status=f"回复中 {i + 1}/{total_to_reply}（总评论 {stats['total']} | 已回复 {stats['replied']} | 跳过 {stats['skipped']}）",
+                last_run_status=f"回复中 {i + 1}/{total_to_reply}（总评论 {stats['total']} | 已处理 {stats['already']} | 新回复 {stats['replied']} | 跳过 {stats['skipped']}）",
             )
-            replied, skipped = await self._process_comment(
+            replied, skipped, already = await self._process_comment(
                 item["comment"],
                 post,
                 profile,
@@ -353,8 +361,9 @@ class MonitorService:
             )
             stats["replied"] += replied
             stats["skipped"] += skipped
+            stats["already"] += already
 
-        status_msg = f"总评论 {stats['total']} | 筛选掉 {stats['screened']} | 待回复 {len(passed)} | 已回复 {stats['replied']} | 跳过 {stats['skipped']}"
+        status_msg = f"总评论 {stats['total']} | 筛选掉 {stats['screened']} | 待回复 {len(passed)} | 已处理 {stats['already']} | 新回复 {stats['replied']} | 跳过 {stats['skipped']}"
         finished_at = datetime.now().astimezone()
         update_monitor(
             monitor_id,
@@ -382,11 +391,12 @@ class MonitorService:
         parent_message: str = "",
         canonical_page_id: str = "",
         previous_replies: list[dict[str, Any]] | None = None,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
+        """Returns (replied, skipped, already) — already=1 when skipped because previously replied."""
 
         comment_id = comment.get("id", "")
         if not comment_id:
-            return 0, 0
+            return 0, 0, 0
 
         author = comment.get("from", {})
         author_name = author.get("name", "")
@@ -400,15 +410,15 @@ class MonitorService:
                 facebook=facebook,
             )
             if still_has_page_reply:
-                return 0, 1  # 已回复，跳过
+                return 0, 0, 1  # 历史已回复，跳过
 
             try:
                 unmark_replied(comment_id)
             except Exception:
-                return 0, 1
+                return 0, 0, 1
 
         if await self._comment_has_page_reply(comment=comment, page_id=canonical_page_id, facebook=facebook):
-            return 0, 1
+            return 0, 1, 0  # Facebook 已有回复，跳过
 
         # 2. 生成并发送回复（AI 筛选已在第一轮完成）
         comment_message = comment.get("message", "")
@@ -424,7 +434,7 @@ class MonitorService:
             await facebook.send_reply(comment_id, reply_message)
         except Exception as exc:
             logger.warning("[monitor] failed to reply to comment=%s: %s", comment_id, exc)
-            return 0, 0
+            return 0, 0, 0
 
         # 3. 记录已回复
         try:
@@ -433,7 +443,7 @@ class MonitorService:
             logger.warning("[monitor] reply sent but failed to persist record: %s", exc)
 
         logger.info("[monitor] replied to comment=%s author=%s depth=%s", comment_id, author_name, depth)
-        return 1, 0
+        return 1, 0, 0
 
     async def _comment_has_page_reply(
         self,
