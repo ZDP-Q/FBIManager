@@ -271,3 +271,66 @@ class AIReplyService:
                 return "REPLY" in content
         except Exception:
             return True  # fail-open
+
+    async def analyze_video(self, video_base64: str) -> str:
+        """Analyze a video using LLM with base64-encoded video data."""
+        if not self.config.ai_enabled:
+            raise RuntimeError("AI 配置不完整，请先在设置中填写 AI 配置")
+
+        data_url = f"data:video/mp4;base64,{video_base64}"
+
+        prompt = (
+            "视频中的人叫 Elio，请分析并回答（用中文）：\n\n"
+            "1. Elio 在哪里？（根据场景细节猜测可能的地点/城市/国家）\n"
+            "2. Elio 在干什么？（具体行为、穿着、表情、互动方式）\n\n"
+            "简洁回答，每点 1-2 句话即可。"
+        )
+
+        payload = {
+            "model": self.config.ai_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "video_url",
+                            "video_url": {
+                                "url": data_url,
+                                "fps": 1,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 800,
+            "temperature": 0.3,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.config.ai_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+            if response.status_code >= 400:
+                detail = response.text
+                try:
+                    detail = response.json().get("error", {}).get("message", detail)
+                except ValueError:
+                    pass
+                raise RuntimeError(f"视频分析失败 ({response.status_code}): {detail}")
+
+        data = response.json()
+        choices = data.get("choices", [])
+        if not choices:
+            raise RuntimeError("AI 接口未返回可用内容")
+
+        content = choices[0].get("message", {}).get("content", "").strip()
+        if not content:
+            raise RuntimeError("AI 接口返回了空内容")
+        return content

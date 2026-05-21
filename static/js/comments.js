@@ -174,6 +174,46 @@ window.delComment = async function(commentId) {
     }
 }
 
+window.analyzePost = async function(postId, btn) {
+    if (btn?.disabled) return;
+    const original = btn?.textContent || '分析';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '分析中...';
+    }
+    showAlert('正在分析视频内容，请稍候...', 'info');
+
+    const resultEl = document.getElementById(`analysis-${postId}`);
+    if (resultEl) {
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = '<div style="padding:12px; color: var(--text-muted);">正在下载视频并分析中，这可能需要 1-2 分钟...</div>';
+    }
+
+    try {
+        const r = await fetch(`/api/posts/${postId}/analyze`, { method: 'POST' });
+        if (!r.ok) throw new Error((await r.json()).detail || '分析失败');
+        const res = await r.json();
+        if (resultEl) {
+            resultEl.innerHTML = `
+                <div style="padding:12px;">
+                    <div style="font-size:12px; font-weight:600; color: var(--text-muted); margin-bottom:6px;">视频内容分析</div>
+                    <div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${res.result}</div>
+                </div>`;
+        }
+        showAlert('视频分析完成。', 'success');
+    } catch (e) {
+        if (resultEl) {
+            resultEl.style.display = 'none';
+        }
+        showAlert(e.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = original;
+        }
+    }
+}
+
 window.syncPost = async function(postId, btn) {
     if (btn?.disabled) return;
     const original = btn?.textContent || '同步';

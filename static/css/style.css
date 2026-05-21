@@ -647,6 +647,15 @@ textarea { resize: vertical; min-height: 80px; }
 /* Comment list */
 .comment-list { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
 
+/* Video analysis result */
+.video-analysis-result {
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border-muted);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+}
+
 .comment-item {
     border: 1px solid var(--border-muted);
     border-radius: var(--radius);

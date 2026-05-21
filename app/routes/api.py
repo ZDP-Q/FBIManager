@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
+import logging
+
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -52,6 +56,7 @@ from app.services.chat_sync import ChatSyncService
 from app.security import PBKDF2_ITERATIONS, generate_salt, hash_password, is_strong_password, verify_password
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger("uvicorn.error")
 
 
 class ReplyPayload(BaseModel):
@@ -722,3 +727,83 @@ async def clear_posts_api():
         return {"status": "success"}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Video Analysis
+# ---------------------------------------------------------------------------
+
+@router.post("/posts/{post_id}/analyze")
+async def analyze_post_video(post_id: str):
+    """Analyze a video post: download from Facebook → base64 → LLM → return result."""
+    post = get_post(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    if post.get("type") != "video":
+        raise HTTPException(status_code=400, detail="该帖子不是视频类型")
+
+    raw_json = post.get("raw_json")
+    if not raw_json:
+        raise HTTPException(status_code=400, detail="帖子缺少原始数据")
+
+    raw = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+    video_id = raw.get("video_id")
+    if not video_id:
+        raise HTTPException(status_code=400, detail="帖子数据中未找到 video_id")
+
+    config = load_config()
+    if not config.page_access_token:
+        raise HTTPException(status_code=500, detail="未配置 page_access_token")
+
+    model_config = get_model_config()
+    if not model_config or not model_config.get("ai_api_key"):
+        raise HTTPException(status_code=500, detail="未配置 AI 模型")
+
+    # Step 1: Get video source URL from Facebook
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(
+                f"{config.graph_base_url}/{video_id}",
+                params={
+                    "fields": "source,permalink_url,description,length",
+                    "access_token": config.page_access_token,
+                },
+            )
+            resp.raise_for_status()
+            video_info = resp.json()
+    except Exception as exc:
+        logger.error("[analyze] Failed to get video source for post=%s: %s", post_id, exc)
+        raise HTTPException(status_code=502, detail=f"获取视频信息失败: {exc}")
+
+    video_source = video_info.get("source")
+    if not video_source:
+        raise HTTPException(status_code=502, detail="Facebook 未返回视频下载链接，可能需要额外权限")
+
+    # Step 2: Download video
+    video_bytes = None
+    try:
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            resp = await client.get(video_source)
+            resp.raise_for_status()
+            video_bytes = resp.content
+    except Exception as exc:
+        logger.error("[analyze] Failed to download video for post=%s: %s", post_id, exc)
+        raise HTTPException(status_code=502, detail=f"下载视频失败: {exc}")
+
+    size_mb = len(video_bytes) / (1024 * 1024)
+    if size_mb > 50:
+        raise HTTPException(status_code=413, detail=f"视频文件过大 ({size_mb:.1f} MB)，超过 50MB 限制")
+
+    # Step 3: Base64 encode and send to LLM
+    b64 = base64.b64encode(video_bytes).decode()
+    del video_bytes  # Free memory immediately
+
+    ai_service = AIReplyService(config)
+    try:
+        result = await ai_service.analyze_video(b64)
+    except Exception as exc:
+        logger.error("[analyze] LLM analysis failed for post=%s: %s", post_id, exc)
+        raise HTTPException(status_code=502, detail=f"AI 分析失败: {exc}")
+
+    return {"status": "success", "result": result}

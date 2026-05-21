@@ -111,12 +111,16 @@
                                 {% else %}
                                 <button class="btn btn-primary btn-xs" onclick="addMonitor('{{ post.id }}', this)">监控</button>
                                 {% endif %}
+                                {% if post.type == 'video' %}
+                                <button class="btn btn-ghost btn-xs" id="btn-analyze-{{ post.id }}" onclick="analyzePost('{{ post.id }}', this)">分析</button>
+                                {% endif %}
                                 <button class="btn btn-danger btn-xs" onclick="deleteSinglePost('{{ post.id }}')">删除</button>
                             </div>
                         </div>
 
                         <!-- Post body -->
                         <div class="post-body">
+                            <div class="video-analysis-result" id="analysis-{{ post.id }}" style="display:none;"></div>
                             <div class="comment-list" id="comment-list-{{ post.id }}">
                                 <div class="empty-state" style="padding:20px">
                                     <p>正在加载评论...</p>
