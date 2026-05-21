@@ -358,7 +358,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 2. 同步全量评论
     document.getElementById('btn-sync-comments')?.addEventListener('click', async (e) => {
-        doSync(0, "", "", true, true);
+        const limit = parseInt(document.getElementById('sync-limit')?.value || '20', 10);
+        const since = document.getElementById('sync-since')?.value?.trim() || '';
+        const until = document.getElementById('sync-until')?.value?.trim() || '';
+        doSync(limit, since, until, false, true);
     });
 
     // 3. 全选

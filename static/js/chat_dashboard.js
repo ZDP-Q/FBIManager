@@ -117,7 +117,10 @@ function startSync(isFull = false) {
         if (data.messages_synced !== undefined) {
             detail.textContent = `累计消息: ${data.messages_synced}`;
         }
-        
+        if (data.percent !== undefined) {
+            fill.style.width = data.percent + '%';
+        }
+
         if (data.done) {
             fill.style.width = '100%';
             eventSource.close();

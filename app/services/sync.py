@@ -220,7 +220,7 @@ class SyncService:
     async def _sync_post_comments(self, post: dict[str, Any]) -> int:
         post_id = post.get("id", "")
         try:
-            comments = await self.facebook.fetch_comments_for_post(post_id, limit=200, max_depth=1)
+            comments = await self.facebook.fetch_comments_for_post(post_id, limit=200, max_depth=3)
             replace_comments_for_post(post_id, comments)
             count = sum(self._count_comment_tree(c) for c in comments)
             logger.info("[sync] comments synced for post=%s top_level=%s total=%s", post_id, len(comments), count)
