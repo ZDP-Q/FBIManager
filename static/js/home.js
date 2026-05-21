@@ -79,6 +79,8 @@ async function loadSettings() {
     if (apiKeyEl) apiKeyEl.value = model.ai_api_key || '';
     const modelNameEl = document.getElementById('model-name');
     if (modelNameEl) modelNameEl.value = model.ai_model || '';
+    const videoModelEl = document.getElementById('video-model-name');
+    if (videoModelEl) videoModelEl.value = model.video_ai_model || '';
 }
 
 async function saveAccount() {
@@ -274,6 +276,7 @@ document.getElementById('btn-model-save')?.addEventListener('click', async () =>
         ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
         ai_api_key: (document.getElementById('model-api-key')?.value || '').trim(),
         ai_model: (document.getElementById('model-name')?.value || '').trim(),
+        video_ai_model: (document.getElementById('video-model-name')?.value || '').trim(),
     };
 
     try {
@@ -294,6 +297,7 @@ document.getElementById('btn-model-test')?.addEventListener('click', async () =>
         ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
         ai_api_key: (document.getElementById('model-api-key')?.value || '').trim(),
         ai_model: (document.getElementById('model-name')?.value || '').trim(),
+        video_ai_model: (document.getElementById('video-model-name')?.value || '').trim(),
     };
 
     const btn = document.getElementById('btn-model-test');

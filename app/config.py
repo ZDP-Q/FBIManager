@@ -19,6 +19,7 @@ class AppConfig:
     ai_api_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
+    video_ai_model: str = ""
     prompt_template: str = "reply_prompt.j2"
 
     @property
@@ -86,5 +87,6 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         ai_api_base_url=str(model.get("ai_api_base_url", "")),
         ai_api_key=str(model.get("ai_api_key", "")),
         ai_model=str(model.get("ai_model", "")),
+        video_ai_model=str(model.get("video_ai_model", "")),
         prompt_template=prompt_template,
     )

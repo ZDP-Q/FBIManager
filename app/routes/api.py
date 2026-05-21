@@ -102,6 +102,7 @@ class ModelConfigPayload(BaseModel):
     ai_api_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
+    video_ai_model: str = ""
     prompt_template: str = "reply_prompt.j2"
 
 
@@ -232,6 +233,7 @@ async def update_model_api(payload: ModelConfigPayload):
         ai_api_base_url=payload.ai_api_base_url.strip(),
         ai_api_key=payload.ai_api_key.strip(),
         ai_model=payload.ai_model.strip(),
+        video_ai_model=payload.video_ai_model.strip(),
         prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
     )
     return {"status": "success"}
@@ -250,8 +252,8 @@ async def test_model_api(payload: ModelConfigPayload):
         ai_api_base_url=payload.ai_api_base_url.strip(),
         ai_api_key=payload.ai_api_key.strip(),
         ai_model=payload.ai_model.strip(),
+        video_ai_model=payload.video_ai_model.strip(),
         prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
-        # Other fields don't matter for this test
     )
     ai_service = AIReplyService(temp_config)
     try:

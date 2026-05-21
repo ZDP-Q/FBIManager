@@ -180,7 +180,7 @@ def get_model_config() -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, ai_api_base_url, ai_api_key, ai_model, prompt_template, updated_at
+            SELECT id, ai_api_base_url, ai_api_key, ai_model, video_ai_model, prompt_template, updated_at
             FROM model_configs
             WHERE id = 1
             """
@@ -188,21 +188,22 @@ def get_model_config() -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str, prompt_template: str = 'reply_prompt.j2') -> None:
+def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str, video_ai_model: str = '', prompt_template: str = 'reply_prompt.j2') -> None:
     with get_connection() as connection:
         with connection:
             connection.execute(
                 """
-                INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, prompt_template, updated_at)
-                VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, video_ai_model, prompt_template, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     ai_api_base_url = excluded.ai_api_base_url,
                     ai_api_key = excluded.ai_api_key,
                     ai_model = excluded.ai_model,
+                    video_ai_model = excluded.video_ai_model,
                     prompt_template = excluded.prompt_template,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (ai_api_base_url, ai_api_key, ai_model, prompt_template),
+                (ai_api_base_url, ai_api_key, ai_model, video_ai_model, prompt_template),
             )
 
 

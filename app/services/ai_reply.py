@@ -286,8 +286,9 @@ class AIReplyService:
             "简洁回答，每点 1-2 句话即可。"
         )
 
+        model = self.config.video_ai_model or self.config.ai_model
         payload = {
-            "model": self.config.ai_model,
+            "model": model,
             "messages": [
                 {
                     "role": "user",

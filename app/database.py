@@ -221,6 +221,11 @@ def init_db() -> None:
         except Exception:
             pass
 
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN video_ai_model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+
     _seed_auto_monitor_config_if_needed()
     _seed_settings_from_legacy_json_if_needed()
     _seed_admin_auth_if_needed()
