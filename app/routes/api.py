@@ -48,6 +48,8 @@ from app.repositories import (
     get_chat_dashboard_stats,
     get_user_message_counts,
     get_chat_detailed_stats,
+    save_video_analysis,
+    get_video_analysis,
 )
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
@@ -736,8 +738,16 @@ async def clear_posts_api():
 # ---------------------------------------------------------------------------
 
 @router.post("/posts/{post_id}/analyze")
-async def analyze_post_video(post_id: str):
-    """Analyze a video post: download from Facebook → base64 → LLM → return result."""
+async def analyze_post_video(post_id: str, force: bool = False):
+    """Analyze a video post: download from Facebook → base64 → LLM → return result.
+    Returns cached result unless force=true.
+    """
+    # Check cache first
+    if not force:
+        cached = get_video_analysis(post_id)
+        if cached:
+            return {"status": "success", "result": cached["content"], "cached": True}
+
     post = get_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="帖子不存在")
@@ -808,4 +818,24 @@ async def analyze_post_video(post_id: str):
         logger.error("[analyze] LLM analysis failed for post=%s: %s", post_id, exc)
         raise HTTPException(status_code=502, detail=f"AI 分析失败: {exc}")
 
-    return {"status": "success", "result": result}
+    # Save to database
+    title = (post.get("message") or "")[:200]
+    post_time = _parse_fb_timestamp(post.get("created_time", ""))
+    try:
+        save_video_analysis(post_id, title, result, post_time)
+    except Exception as exc:
+        logger.warning("[analyze] Failed to save analysis result: %s", exc)
+
+    return {"status": "success", "result": result, "cached": False}
+
+
+def _parse_fb_timestamp(ts: str) -> int:
+    """Parse Facebook ISO timestamp to Unix timestamp (int)."""
+    if not ts:
+        return 0
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(ts)
+        return int(dt.timestamp())
+    except (ValueError, TypeError):
+        return 0

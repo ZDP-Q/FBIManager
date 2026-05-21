@@ -178,6 +178,17 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE INDEX IF NOT EXISTS idx_conv_page ON page_conversations(page_id);
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON conversation_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_msg_time ON conversation_messages(created_time);
+
+CREATE TABLE IF NOT EXISTS video_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    post_time INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_analyses_post_id ON video_analyses(post_id);
 """
 
 

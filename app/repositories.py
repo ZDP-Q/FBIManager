@@ -1367,3 +1367,41 @@ def check_message_exists(msg_id: str) -> bool:
             "SELECT 1 FROM conversation_messages WHERE id = ?", (msg_id,)
         ).fetchone()
         return bool(row)
+
+
+# ---------------------------------------------------------------------------
+# Video Analyses
+# ---------------------------------------------------------------------------
+
+def save_video_analysis(post_id: str, title: str, content: str, post_time: int) -> int:
+    """Save a video analysis result. Returns the new row id."""
+    with get_connection() as connection:
+        with connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO video_analyses (post_id, title, content, post_time, created_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (post_id, title, content, post_time),
+            )
+            return cursor.lastrowid
+
+
+def get_video_analysis(post_id: str) -> dict[str, Any] | None:
+    """Get the latest video analysis for a post."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM video_analyses WHERE post_id = ? ORDER BY created_at DESC LIMIT 1",
+            (post_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_video_analyses(limit: int = 50) -> list[dict[str, Any]]:
+    """List recent video analyses."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT * FROM video_analyses ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
