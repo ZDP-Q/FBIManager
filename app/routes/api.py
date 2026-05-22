@@ -51,6 +51,7 @@ from app.repositories import (
     save_video_analysis,
     get_video_analysis,
     update_video_analysis,
+    update_video_analysis_pushed,
 )
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
@@ -885,3 +886,107 @@ def _parse_fb_timestamp(ts: str) -> int:
         return int(dt.timestamp())
     except (ValueError, TypeError):
         return 0
+
+
+# ---- Schedule management endpoints ----
+
+PUSH_URL = "https://manager.banlv-ai.com/api/schedule"
+PUSH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcmFkbWluIiwiZXhwIjoxODEwOTcwNDg3fQ.duPk17XOMk5kVjn8gqkuL3Vhp25bsCByVHS7BfecsIU"
+
+
+@router.post("/video/batch-analyze")
+async def batch_analyze_videos():
+    """Analyze all video-type posts that don't have analysis yet."""
+    from app.registry import update_task_status
+    from datetime import datetime, timezone
+
+    config = load_config()
+    page_id = get_canonical_page_id(config.page_id)
+    posts = list_posts(page_id=page_id, limit=200)
+
+    video_posts = [p for p in posts if p.get("type") == "video"]
+    unanalyzed = []
+    for p in video_posts:
+        existing = get_video_analysis(p["id"])
+        if not existing:
+            unanalyzed.append(p)
+
+    if not unanalyzed:
+        return {"status": "success", "total": 0, "msg": "没有需要分析的视频"}
+
+    task_key = "batch_video_analysis"
+    total = len(unanalyzed)
+    update_task_status(task_key, {"msg": f"开始批量分析 {total} 个视频...", "percent": 0, "done": False, "total": total, "completed": 0})
+
+    results = {"success": 0, "failed": 0, "errors": []}
+    for i, post in enumerate(unanalyzed):
+        # Check for cooperative cancellation
+        status = get_task_status(task_key)
+        if status and status.get("cancel"):
+            update_task_status(task_key, {"msg": "用户取消批量分析", "done": True, "percent": 0, "error": True})
+            return {"status": "cancelled", **results}
+
+        pct = int((i / total) * 100)
+        update_task_status(task_key, {"msg": f"正在分析第 {i+1}/{total} 个视频...", "percent": pct, "done": False, "total": total, "completed": i})
+
+        try:
+            await _do_analyze(post["id"], True, f"video_analysis_{post['id']}")
+            results["success"] += 1
+        except Exception as exc:
+            results["failed"] += 1
+            results["errors"].append({"post_id": post["id"], "error": str(exc)})
+            logger.error("[batch-analyze] Failed for post=%s: %s", post["id"], exc)
+
+    update_task_status(task_key, {"msg": f"批量分析完成：成功 {results['success']}，失败 {results['failed']}", "percent": 100, "done": True, "total": total, "completed": total})
+    return {"status": "success", **results}
+
+
+@router.post("/video/push/{post_id}")
+async def push_video_analysis(post_id: str):
+    """Push a video analysis result to the external schedule API."""
+    from datetime import datetime, timezone
+
+    analysis = get_video_analysis(post_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail="未找到该帖子的分析记录")
+
+    content_raw = analysis.get("content", "")
+    try:
+        parsed = json.loads(content_raw)
+        if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
+            content = f"{parsed['location']}\n{parsed['behavior']}\n{parsed['environment']}"
+        else:
+            content = content_raw
+    except (json.JSONDecodeError, TypeError):
+        content = content_raw
+
+    post = get_post(post_id)
+    title = (post.get("message") or "")[:200] if post else ""
+    post_time = _parse_fb_timestamp(post.get("created_time", "")) if post else 0
+
+    payload = {
+        "postsId": post_id,
+        "postTime": post_time,
+        "title": title,
+        "content": content,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                PUSH_URL,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Cookie": f"mgr_token={PUSH_TOKEN}",
+                },
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        logger.error("[push] Failed to push post=%s: %s", post_id, exc)
+        raise HTTPException(status_code=502, detail=f"推送失败: {exc}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_video_analysis_pushed(post_id, now)
+
+    return {"status": "success", "pushed_at": now}

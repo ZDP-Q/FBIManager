@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import SESSION_COOKIE, authenticate_admin, create_session, is_authenticated
 from app.config import PROJECT_ROOT, load_config
 from app.repositories import list_comments_by_post_ids, list_monitors, list_posts, get_canonical_page_id
+from app.repositories import list_posts_with_analysis
 from app.repositories import cleanup_expired_admin_sessions, delete_admin_session
 from app.security import SESSION_TTL_HOURS, generate_session_id
 
@@ -146,3 +147,38 @@ async def monitors_page(request: Request):
 @router.get("/chats", response_class=HTMLResponse)
 async def chats_page(request: Request):
     return templates.TemplateResponse("chat_dashboard.html", {"request": request})
+
+
+@router.get("/schedule", response_class=HTMLResponse)
+async def schedule_page(request: Request):
+    config = load_config()
+    page_id = get_canonical_page_id(config.page_id)
+    rows = list_posts_with_analysis(page_id=page_id, limit=200)
+
+    posts = []
+    for row in rows:
+        analysis_json = None
+        content = row.get("analysis_content", "")
+        if content:
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
+                    analysis_json = parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        posts.append({
+            "id": row["id"],
+            "message": row.get("message") or "",
+            "created_time": row.get("created_time") or "",
+            "type": row.get("type") or "",
+            "has_analysis": bool(content),
+            "analysis_json": analysis_json,
+            "analysis_content": content,
+            "pushed_at": row.get("pushed_at"),
+        })
+
+    return templates.TemplateResponse(
+        "schedule.html",
+        {"request": request, "posts": posts},
+    )

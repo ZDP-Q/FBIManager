@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}日程管理{% endblock %}
+{% block body_class %}{% endblock %}
+{% block nav_schedule %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">日程管理</h1>
+        <p class="page-subtitle">管理帖子视频分析结果，批量分析并推送至外部系统。</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="btn-batch-push" style="display:none;">批量推送 (<span id="push-count">0</span>)</button>
+        <button class="btn btn-primary btn-sm" id="btn-batch-analyze">批量分析未识别视频</button>
+    </div>
+</div>
+
+<div id="schedule-alert" class="alert"></div>
+
+<!-- Progress bar -->
+<div id="progress-container" class="progress-container" style="display: none; margin-bottom: 16px;">
+    <div class="progress-bar-label">
+        <span id="progress-status">正在分析...</span>
+        <span id="progress-percent">0%</span>
+    </div>
+    <div class="progress-bar-bg">
+        <div id="progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+    </div>
+</div>
+
+{% if posts %}
+<div style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 30px;"><input type="checkbox" id="select-all"></th>
+                <th style="min-width: 200px;">帖子内容</th>
+                <th style="width: 100px;">类型</th>
+                <th style="width: 140px;">发布时间</th>
+                <th style="width: 80px;">分析状态</th>
+                <th style="min-width: 300px;">识别内容</th>
+                <th style="width: 100px;">推送状态</th>
+                <th style="width: 120px;">操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for post in posts %}
+            <tr data-post-id="{{ post.id }}" id="row-{{ post.id }}">
+                <td>
+                    {% if post.has_analysis and not post.pushed_at %}
+                    <input type="checkbox" class="push-checkbox" data-post-id="{{ post.id }}">
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {{ post.message[:100] or '（无内容）' }}
+                    </div>
+                </td>
+                <td>
+                    {% if post.type == 'video' %}
+                    <span class="badge badge-info">视频</span>
+                    {% elif post.type == 'photo' %}
+                    <span class="badge badge-success">图片</span>
+                    {% else %}
+                    <span class="badge badge-neutral">{{ post.type or '状态' }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ post.created_time or '-' }}</td>
+                <td>
+                    {% if post.has_analysis %}
+                    <span class="badge badge-success">已分析</span>
+                    {% else %}
+                    <span class="badge badge-neutral">未分析</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if post.analysis_json %}
+                    <div style="line-height: 1.5;">
+                        <div><strong>地点：</strong>{{ post.analysis_json.location }}</div>
+                        <div><strong>行为：</strong>{{ post.analysis_json.behavior }}</div>
+                        <div><strong>环境：</strong>{{ post.analysis_json.environment }}</div>
+                    </div>
+                    {% elif post.has_analysis %}
+                    <div style="white-space: pre-wrap; max-height: 80px; overflow: hidden;">{{ post.analysis_content[:200] }}</div>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if post.pushed_at %}
+                    <span class="badge badge-success" title="{{ post.pushed_at }}">已推送</span>
+                    {% elif post.has_analysis %}
+                    <span class="badge badge-neutral">未推送</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if post.has_analysis and not post.pushed_at %}
+                    <button class="btn btn-primary btn-xs btn-push" data-post-id="{{ post.id }}">推送</button>
+                    {% elif post.pushed_at %}
+                    <button class="btn btn-secondary btn-xs btn-push" data-post-id="{{ post.id }}">重新推送</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">📅</div>
+    <p>暂无帖子数据，请先在内容中心同步帖子。</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/schedule.js"></script>
+{% endblock %}

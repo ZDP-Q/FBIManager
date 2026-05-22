@@ -185,7 +185,8 @@ CREATE TABLE IF NOT EXISTS video_analyses (
     title TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     post_time INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    pushed_at TEXT DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_video_analyses_post_id ON video_analyses(post_id);
@@ -234,6 +235,11 @@ def init_db() -> None:
 
         try:
             connection.execute("ALTER TABLE model_configs ADD COLUMN video_ai_model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE video_analyses ADD COLUMN pushed_at TEXT DEFAULT NULL")
         except Exception:
             pass
 

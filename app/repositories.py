@@ -1422,3 +1422,39 @@ def list_video_analyses(limit: int = 50) -> list[dict[str, Any]]:
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_video_analysis_pushed(post_id: str, pushed_at: str) -> bool:
+    """Update pushed_at for the latest video analysis of a post."""
+    with get_connection() as connection:
+        with connection:
+            row = connection.execute(
+                "SELECT id FROM video_analyses WHERE post_id = ? ORDER BY created_at DESC LIMIT 1",
+                (post_id,),
+            ).fetchone()
+            if not row:
+                return False
+            connection.execute(
+                "UPDATE video_analyses SET pushed_at = ? WHERE id = ?",
+                (pushed_at, row["id"]),
+            )
+            return True
+
+
+def list_posts_with_analysis(page_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    """List posts with their video analysis (if any), for the schedule page."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT p.id, p.message, p.created_time, p.type,
+                   va.content AS analysis_content, va.post_time AS analysis_post_time,
+                   va.pushed_at, va.id AS analysis_id
+            FROM posts p
+            LEFT JOIN video_analyses va ON va.post_id = p.id
+            WHERE p.page_id = ?
+            ORDER BY p.created_time DESC
+            LIMIT ?
+            """,
+            (page_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
