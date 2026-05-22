@@ -190,7 +190,9 @@ window.analyzePost = async function(postId, btn) {
     }
 
     try {
-        const r = await fetch(`/api/posts/${postId}/analyze`, { method: 'POST' });
+        const force = original === '重新分析';
+        const url = `/api/posts/${postId}/analyze` + (force ? '?force=true' : '');
+        const r = await fetch(url, { method: 'POST' });
         if (!r.ok) throw new Error((await r.json()).detail || '分析失败');
         const res = await r.json();
         if (resultEl) {
