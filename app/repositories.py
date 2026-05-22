@@ -1442,7 +1442,7 @@ def update_video_analysis_pushed(post_id: str, pushed_at: str) -> bool:
 
 
 def list_posts_with_analysis(page_id: str, limit: int = 200) -> list[dict[str, Any]]:
-    """List posts with their video analysis (if any), for the schedule page."""
+    """List posts with their latest video analysis (if any), for the schedule page."""
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -1450,7 +1450,9 @@ def list_posts_with_analysis(page_id: str, limit: int = 200) -> list[dict[str, A
                    va.content AS analysis_content, va.post_time AS analysis_post_time,
                    va.pushed_at, va.id AS analysis_id
             FROM posts p
-            LEFT JOIN video_analyses va ON va.post_id = p.id
+            LEFT JOIN video_analyses va ON va.id = (
+                SELECT id FROM video_analyses WHERE post_id = p.id ORDER BY created_at DESC LIMIT 1
+            )
             WHERE p.page_id = ?
             ORDER BY p.created_time DESC
             LIMIT ?
