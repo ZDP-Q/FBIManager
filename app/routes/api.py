@@ -744,7 +744,9 @@ async def analyze_post_video(post_id: str, force: bool = False):
     """Analyze a video post: download from Facebook → base64 → LLM → return result.
     Returns cached result unless force=true.
     """
-    from app.registry import set_analyzing, clear_analyzing
+    from app.registry import update_task_status
+
+    task_key = f"video_analysis_{post_id}"
 
     # Check cache first
     if not force:
@@ -752,14 +754,19 @@ async def analyze_post_video(post_id: str, force: bool = False):
         if cached:
             return {"status": "success", "result": cached["content"], "cached": True}
 
-    set_analyzing(post_id)
     try:
-        return await _do_analyze(post_id, force)
+        return await _do_analyze(post_id, force, task_key)
+    except Exception:
+        raise
     finally:
-        clear_analyzing(post_id)
+        update_task_status(task_key, {"msg": "", "done": True})
 
 
-async def _do_analyze(post_id: str, force: bool):
+async def _do_analyze(post_id: str, force: bool, task_key: str):
+    from app.registry import update_task_status
+
+    update_task_status(task_key, {"msg": "正在获取视频信息...", "percent": 10, "done": False})
+
     post = get_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="帖子不存在")
@@ -805,6 +812,7 @@ async def _do_analyze(post_id: str, force: bool):
         raise HTTPException(status_code=502, detail="Facebook 未返回视频下载链接，可能需要额外权限")
 
     # Step 2: Download video
+    update_task_status(task_key, {"msg": "正在下载视频...", "percent": 30, "done": False})
     video_bytes = None
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
@@ -820,6 +828,7 @@ async def _do_analyze(post_id: str, force: bool):
         raise HTTPException(status_code=413, detail=f"视频文件过大 ({size_mb:.1f} MB)，超过 50MB 限制")
 
     # Step 3: Base64 encode and send to LLM
+    update_task_status(task_key, {"msg": "正在分析视频内容（可能需要 1-2 分钟）...", "percent": 60, "done": False})
     b64 = base64.b64encode(video_bytes).decode()
     del video_bytes  # Free memory immediately
 
@@ -839,13 +848,6 @@ async def _do_analyze(post_id: str, force: bool):
         logger.warning("[analyze] Failed to save analysis result: %s", exc)
 
     return {"status": "success", "result": result, "cached": False}
-
-
-@router.get("/posts/analyzing")
-async def get_analyzing_status():
-    """Return the set of post IDs currently being analyzed."""
-    from app.registry import get_analyzing_posts
-    return {"analyzing": get_analyzing_posts()}
 
 
 @router.put("/posts/{post_id}/analyze")

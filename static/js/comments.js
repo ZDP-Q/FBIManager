@@ -175,24 +175,46 @@ window.delComment = async function(commentId) {
 }
 
 async function checkAnalyzingPosts() {
-    try {
-        const r = await fetch('/api/posts/analyzing');
-        if (!r.ok) return;
-        const data = await r.json();
-        const analyzing = data.analyzing || {};
-        for (const postId of Object.keys(analyzing)) {
-            const resultEl = document.getElementById(`analysis-${postId}`);
-            if (resultEl) {
-                resultEl.style.display = 'block';
-                resultEl.innerHTML = '<div style="padding:12px; color: var(--text-muted);">正在下载视频并分析中，这可能需要 1-2 分钟...</div>';
-            }
-            const btn = document.getElementById(`btn-analyze-${postId}`);
-            if (btn) {
-                btn.disabled = true;
-                btn.textContent = '分析中...';
-            }
+    const btns = document.querySelectorAll('[id^="btn-analyze-"]');
+    const checks = [];
+    btns.forEach(btn => {
+        const postId = btn.id.replace('btn-analyze-', '');
+        checks.push(
+            fetch(`/api/sync/status?task=video_analysis_${postId}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => ({ postId, data }))
+                .catch(() => ({ postId, data: null }))
+        );
+    });
+    const results = await Promise.all(checks);
+    for (const { postId, data } of results) {
+        if (!data || data.done) continue;
+        const resultEl = document.getElementById(`analysis-${postId}`);
+        if (resultEl) {
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${data.msg || '正在分析视频...'}</div>`;
         }
-    } catch {}
+        const btn = document.getElementById(`btn-analyze-${postId}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '分析中...';
+        }
+        // Poll until done
+        const timer = setInterval(async () => {
+            try {
+                const r = await fetch(`/api/sync/status?task=video_analysis_${postId}`);
+                const d = await r.json();
+                if (!d || d.done) {
+                    clearInterval(timer);
+                    // Reload to show the result from DB
+                    location.reload();
+                } else {
+                    const el = document.getElementById(`analysis-${postId}`);
+                    if (el) el.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${d.msg || '正在分析视频...'}</div>`;
+                }
+            } catch { clearInterval(timer); }
+        }, 2000);
+    }
 }
 
 window.analyzePost = async function(postId, btn) {
