@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import random
@@ -12,6 +13,7 @@ from app.repositories import (
     get_monitor,
     get_page_profile,
     get_post,
+    get_video_analysis,
     has_replied,
     list_monitors,
     list_replied_for_post,
@@ -203,6 +205,20 @@ class MonitorService:
         post = get_post(post_id) or {}
         # 优先从数据库中获取规范化的数字 Page ID
         page_id = str(post.get("page_id", ""))
+
+        # 加载视频分析内容作为 AI 上下文
+        video_analysis_ctx = ""
+        if post.get("type") == "video":
+            va = get_video_analysis(post_id)
+            if va:
+                raw = va.get("content", "")
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
+                        video_analysis_ctx = f"拍摄地点：{parsed['location']}；人物行为：{parsed['behavior']}；场景环境：{parsed['environment']}"
+                except (json.JSONDecodeError, TypeError):
+                    if raw.strip():
+                        video_analysis_ctx = raw.strip()
         if not page_id:
             raise RuntimeError(f"monitor={monitor_id} 关联帖子缺失 page_id")
 
@@ -358,6 +374,7 @@ class MonitorService:
                 parent_message=item["parent_message"],
                 canonical_page_id=canonical_page_id,
                 previous_replies=previous_replies,
+                video_analysis=video_analysis_ctx,
             )
             stats["replied"] += replied
             stats["skipped"] += skipped
@@ -391,6 +408,7 @@ class MonitorService:
         parent_message: str = "",
         canonical_page_id: str = "",
         previous_replies: list[dict[str, Any]] | None = None,
+        video_analysis: str = "",
     ) -> tuple[int, int, int]:
         """Returns (replied, skipped, already) — already=1 when skipped because previously replied."""
 
@@ -430,6 +448,7 @@ class MonitorService:
                 comment_author=author_name or "匿名用户",
                 parent_comment_message=parent_message,
                 previous_replies=previous_replies,
+                video_analysis=video_analysis,
             )
             await facebook.send_reply(comment_id, reply_message)
         except Exception as exc:

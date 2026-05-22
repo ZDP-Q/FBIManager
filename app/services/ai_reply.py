@@ -12,6 +12,7 @@ _PROMPT_DIR = PROJECT_ROOT / "prompts"
 _DEFAULT_TEMPLATE = (
     "主页名称: {{ page_name or '未提供' }}\n"
     "帖子内容: {{ post_message or '未提供' }}\n"
+    "{% if video_analysis %}视频分析: {{ video_analysis }}\n{% endif %}"
     "评论用户: {{ author_name or '匿名用户' }}\n"
     "评论内容: {{ comment_message or '（空）' }}\n"
     "{% if parent_comment_message %}被回复的原评论: {{ parent_comment_message }}\n{% endif %}"
@@ -48,6 +49,7 @@ def _build_user_prompt(
     author_name: str,
     parent_comment_message: str = "",
     previous_replies: list[dict[str, Any]] | None = None,
+    video_analysis: str = "",
     template_name: str = "reply_prompt.j2",
 ) -> str:
     try:
@@ -68,6 +70,7 @@ def _build_user_prompt(
         author_name=author_name,
         parent_comment_message=parent_comment_message,
         previous_replies=previous_replies or [],
+        video_analysis=video_analysis,
     ).strip()
 
 
@@ -104,6 +107,7 @@ class AIReplyService:
         comment_author: str,
         parent_comment_message: str = "",
         previous_replies: list[dict[str, Any]] | None = None,
+        video_analysis: str = "",
     ) -> str:
         if not self.config.ai_enabled:
             raise RuntimeError("AI 配置不完整，请先在 config.json 中填写 AI_API_BASE_URL、AI_API_KEY 和 AI_MODEL")
@@ -115,6 +119,7 @@ class AIReplyService:
             author_name=comment_author,
             parent_comment_message=parent_comment_message,
             previous_replies=previous_replies,
+            video_analysis=video_analysis,
             template_name=self.config.prompt_template,
         )
 

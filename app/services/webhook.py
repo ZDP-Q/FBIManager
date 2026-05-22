@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.config import AppConfig
-from app.repositories import get_page_profile, list_replied_for_post
+from app.repositories import get_page_profile, get_video_analysis, list_replied_for_post
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
 
@@ -58,6 +59,19 @@ class WebhookService:
                         # 获取帖子内容失败不阻断回复流程
                         post_message = ""
 
+                video_analysis_ctx = ""
+                if post_id:
+                    va = get_video_analysis(post_id)
+                    if va:
+                        raw = va.get("content", "")
+                        try:
+                            parsed = json.loads(raw)
+                            if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
+                                video_analysis_ctx = f"拍摄地点：{parsed['location']}；人物行为：{parsed['behavior']}；场景环境：{parsed['environment']}"
+                        except (json.JSONDecodeError, TypeError):
+                            if raw.strip():
+                                video_analysis_ctx = raw.strip()
+
                 try:
                     previous_replies = list_replied_for_post(post_id, limit=10) if post_id else []
                     ai_text = await self.ai.generate_reply(
@@ -66,6 +80,7 @@ class WebhookService:
                         comment_message=comment_message,
                         comment_author=sender_name,
                         previous_replies=previous_replies,
+                        video_analysis=video_analysis_ctx,
                     )
                     await self.facebook.send_reply(comment_id, ai_text)
                     replied += 1
