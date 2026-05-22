@@ -280,10 +280,16 @@ class AIReplyService:
         data_url = f"data:video/mp4;base64,{video_base64}"
 
         prompt = (
-            "视频中的人叫 Elio，请分析并回答（用中文）：\n\n"
-            "1. Elio 在哪里？（根据场景细节猜测可能的地点/城市/国家）\n"
-            "2. Elio 在干什么？（具体行为、穿着、表情、互动方式）\n\n"
-            "简洁回答，每点 1-2 句话即可。"
+            "你是一个专业的视频内容分析师。请仔细观看这段视频，重点关注画面中的背景景物、"
+            "环境特征、建筑风格、植被、天气、光线等视觉细节，经过深入思考后再给出分析结果。\n\n"
+            "请用中文回答以下问题：\n\n"
+            "1. **拍摄地点推测**：根据画面中出现的建筑风格、街道布局、招牌文字、植被类型、"
+            "车辆型号、天气光线等背景细节，推测视频可能拍摄于哪个城市或地区，并说明你的判断依据。\n\n"
+            "2. **人物行为分析**：视频中的人物在做什么？包括具体行为、穿着打扮、表情状态、"
+            "与周围环境或他人的互动方式。\n\n"
+            "3. **场景环境描述**：描述视频中的整体环境氛围，包括背景中出现的 notable 事物"
+            "（如地标建筑、自然景观、交通工具、人群密度等）。\n\n"
+            "请基于你观察到的具体画面细节进行分析，不要凭空猜测。每个问题 2-3 句话。"
         )
 
         model = self.config.video_ai_model or self.config.ai_model
@@ -297,7 +303,7 @@ class AIReplyService:
                             "type": "video_url",
                             "video_url": {
                                 "url": data_url,
-                                "fps": 1,
+                                "fps": 2,
                             },
                         },
                         {
@@ -307,8 +313,9 @@ class AIReplyService:
                     ],
                 }
             ],
-            "max_tokens": 800,
-            "temperature": 0.3,
+            "max_tokens": 1600,
+            "temperature": 0.2,
+            "enable_thinking": True,
         }
 
         headers = {
