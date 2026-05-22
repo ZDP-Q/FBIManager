@@ -961,7 +961,7 @@ async def push_video_analysis(post_id: str):
         content = content_raw
 
     post = get_post(post_id)
-    title = (post.get("message") or "")[:200] if post else ""
+    title = (post.get("message") or "")[:150] if post else ""
     post_time = _parse_fb_timestamp(post.get("created_time", "")) if post else 0
 
     payload = {
