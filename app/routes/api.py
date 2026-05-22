@@ -852,11 +852,25 @@ async def _do_analyze(post_id: str, force: bool, task_key: str):
 
 @router.put("/posts/{post_id}/analyze")
 async def update_post_video_analysis(post_id: str, payload: dict[str, str]):
-    """Update (manually correct) a video analysis result."""
-    content = (payload.get("content") or "").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="内容不能为空")
-    if not update_video_analysis(post_id, content):
+    """Update (manually correct) the location field of a video analysis."""
+    new_location = (payload.get("location") or "").strip()
+    if not new_location:
+        raise HTTPException(status_code=400, detail="地点不能为空")
+
+    existing = get_video_analysis(post_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="未找到该帖子的分析记录")
+
+    content = existing.get("content", "")
+    try:
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError("not a dict")
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="该分析结果为旧格式，无法修正地点字段。请重新分析。")
+
+    data["location"] = new_location
+    if not update_video_analysis(post_id, json.dumps(data, ensure_ascii=False)):
         raise HTTPException(status_code=404, detail="未找到该帖子的分析记录")
     return {"status": "success"}
 

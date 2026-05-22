@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -82,12 +84,23 @@ async def content_page(request: Request, limit: int = 50):
     for post in posts:
         msg = post.get("message") or ""
         analysis = get_video_analysis(post["id"]) if post.get("type") == "video" else None
+        video_analysis = analysis.get("content", "") if analysis else ""
+        video_analysis_json = None
+        if video_analysis:
+            try:
+                parsed = json.loads(video_analysis)
+                if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
+                    video_analysis_json = parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         post_data = {
             **post,
             "has_monitor": post["id"] in monitored_post_ids,
             "message_display": (msg[:300] + "...") if len(msg) > 300 else msg,
             "comments_count": post.get("local_comment_count", 0),
-            "video_analysis": analysis.get("content", "") if analysis else "",
+            "video_analysis": video_analysis,
+            "video_analysis_json": video_analysis_json,
         }
         
         date_str = "未知日期"

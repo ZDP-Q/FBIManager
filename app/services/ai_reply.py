@@ -281,18 +281,14 @@ class AIReplyService:
 
         prompt = (
             "你是一个专业的视频内容分析师。请仔细观看这段视频，重点关注画面中的背景景物、"
-            "环境特征、建筑风格、植被、天气、光线等视觉细节，经过深入思考后再给出分析结果。\n\n"
-            "请用中文回答以下问题：\n\n"
-            "1. **拍摄地点推测**：根据画面中出现的建筑风格、街道布局、招牌文字、植被类型、"
-            "车辆型号、餐食特征、天气光线等背景细节，推测视频拍摄的具体地点。"
-            "你必须给出一个明确的结论，格式为：国家 - 省/州 - 城市。"
-            "不要给出范围或多个候选，直接写出你认为最可能的具体地点，"
-            "然后用 1-2 句话说明你的判断依据（如植被类型、建筑风格、文字语言、饮食特征等）。\n\n"
-            "2. **人物行为分析**：视频中的人物在做什么？包括具体行为、穿着打扮、表情状态、"
-            "与周围环境或他人的互动方式。\n\n"
-            "3. **场景环境描述**：描述视频中的整体环境氛围，包括背景中出现的 notable 事物"
-            "（如地标建筑、自然景观、交通工具、人群密度等）。\n\n"
-            "请基于你观察到的具体画面细节进行分析，不要凭空猜测。每个问题 2-3 句话。"
+            "环境特征、建筑风格、植被、天气、光线等视觉细节。\n\n"
+            "请用中文以 JSON 格式返回以下三个字段：\n\n"
+            '1. "location"：推测视频拍摄的具体地点，格式为"国家 - 省/州 - 城市"。'
+            "只给出结论，不要包含分析推理过程。\n"
+            '2. "behavior"：视频中人物的具体行为，包括动作、穿着、表情、互动方式等，2-3 句话。\n'
+            '3. "environment"：视频中的整体环境氛围，包括背景中出现的地标建筑、自然景观、'
+            "交通工具、人群密度等，2-3 句话。\n\n"
+            "请基于你观察到的具体画面细节进行分析，不要凭空猜测。"
         )
 
         model = self.config.video_ai_model or self.config.ai_model
@@ -318,7 +314,33 @@ class AIReplyService:
             ],
             "max_tokens": 1600,
             "temperature": 0.2,
-            "enable_thinking": True,
+            "enable_thinking": False,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "video_analysis",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "推测的拍摄地点，格式：国家 - 省/州 - 城市",
+                            },
+                            "behavior": {
+                                "type": "string",
+                                "description": "人物行为描述，2-3句话",
+                            },
+                            "environment": {
+                                "type": "string",
+                                "description": "场景环境描述，2-3句话",
+                            },
+                        },
+                        "required": ["location", "behavior", "environment"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
         }
 
         headers = {
@@ -344,4 +366,15 @@ class AIReplyService:
         content = choices[0].get("message", {}).get("content", "").strip()
         if not content:
             raise RuntimeError("AI 接口返回了空内容")
+
+        # Validate JSON structure
+        import json as _json
+        try:
+            parsed = _json.loads(content)
+            for field in ("location", "behavior", "environment"):
+                if field not in parsed or not str(parsed[field]).strip():
+                    raise RuntimeError(f"AI 返回的 JSON 缺少必要字段: {field}")
+        except _json.JSONDecodeError as e:
+            raise RuntimeError(f"AI 返回的内容不是有效 JSON: {e}")
+
         return content

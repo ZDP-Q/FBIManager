@@ -217,6 +217,33 @@ async function checkAnalyzingPosts() {
     }
 }
 
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function renderAnalysisHTML(result) {
+    let parsed = null;
+    try { parsed = JSON.parse(result); } catch (e) { /* plain text */ }
+    if (parsed && parsed.location && parsed.behavior && parsed.environment) {
+        return `
+            <div style="margin-bottom:8px;">
+                <span style="font-size:12px; font-weight:600; color: var(--text-muted);">拍摄地点：</span>
+                <span class="analysis-location" style="font-size:13px; font-weight:500;">${escapeHtml(parsed.location)}</span>
+            </div>
+            <div style="margin-bottom:8px;">
+                <span style="font-size:12px; font-weight:600; color: var(--text-muted);">人物行为：</span>
+                <span style="font-size:13px; line-height:1.6;">${escapeHtml(parsed.behavior)}</span>
+            </div>
+            <div>
+                <span style="font-size:12px; font-weight:600; color: var(--text-muted);">场景环境：</span>
+                <span style="font-size:13px; line-height:1.6;">${escapeHtml(parsed.environment)}</span>
+            </div>`;
+    }
+    return `<div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${escapeHtml(result)}</div>`;
+}
+
 window.analyzePost = async function(postId, btn) {
     if (btn?.disabled) return;
     const original = btn?.textContent || '分析';
@@ -245,7 +272,9 @@ window.analyzePost = async function(postId, btn) {
                         <div style="font-size:12px; font-weight:600; color: var(--text-muted);">视频内容分析</div>
                         <button class="btn btn-ghost btn-xs" onclick="editAnalysis('${postId}')">修正</button>
                     </div>
-                    <div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${res.result}</div>
+                    <div class="analysis-content" data-raw="${escapeHtml(res.result)}">
+                        ${renderAnalysisHTML(res.result)}
+                    </div>
                 </div>`;
         }
         showAlert('视频分析完成。', 'success');
@@ -267,45 +296,58 @@ window.editAnalysis = function(postId) {
     if (!resultEl) return;
     const contentEl = resultEl.querySelector('.analysis-content');
     if (!contentEl) return;
-    const originalText = contentEl.textContent;
-    contentEl.outerHTML = `
-        <textarea class="analysis-edit-area" style="width:100%; min-height:120px; font-size:13px; line-height:1.6; padding:8px; border:1px solid var(--border-color); border-radius:6px; resize:vertical;">${originalText}</textarea>
-        <div style="margin-top:8px; display:flex; gap:6px;">
-            <button class="btn btn-primary btn-xs" onclick="saveAnalysis('${postId}')">保存</button>
-            <button class="btn btn-ghost btn-xs" onclick="cancelEdit('${postId}', this)">取消</button>
-        </div>`;
+
+    const raw = contentEl.getAttribute('data-raw') || contentEl.textContent;
+    let currentLocation = '';
+    try {
+        const parsed = JSON.parse(raw);
+        currentLocation = parsed.location || '';
+    } catch (e) {
+        showAlert('该分析结果为旧格式，请重新分析后再修正。', 'error');
+        return;
+    }
+
+    const locationSpan = contentEl.querySelector('.analysis-location');
+    if (locationSpan) {
+        locationSpan.outerHTML = `
+            <input type="text" class="analysis-edit-input"
+                   value="${escapeHtml(currentLocation)}"
+                   style="font-size:13px; font-weight:500; width:300px; padding:4px 8px; border:1px solid var(--border-color); border-radius:4px;"
+                   placeholder="国家 - 省/州 - 城市" />`;
+    }
+
+    const existingBtns = resultEl.querySelector('.analysis-edit-buttons');
+    if (existingBtns) existingBtns.remove();
+
+    const btnArea = document.createElement('div');
+    btnArea.className = 'analysis-edit-buttons';
+    btnArea.style.cssText = 'margin-top:8px; display:flex; gap:6px;';
+    btnArea.innerHTML = `
+        <button class="btn btn-primary btn-xs" onclick="saveAnalysis('${postId}')">保存</button>
+        <button class="btn btn-ghost btn-xs" onclick="cancelEdit('${postId}')">取消</button>`;
+    contentEl.parentElement.appendChild(btnArea);
 };
 
-window.cancelEdit = function(postId, btn) {
-    const resultEl = document.getElementById(`analysis-${postId}`);
-    if (!resultEl) return;
-    const textarea = resultEl.querySelector('.analysis-edit-area');
-    if (!textarea) return;
-    const text = textarea.value;
-    const btnContainer = textarea.nextElementSibling;
-    if (btnContainer) btnContainer.remove();
-    textarea.outerHTML = `<div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${text}</div>`;
+window.cancelEdit = function(postId) {
+    location.reload();
 };
 
 window.saveAnalysis = async function(postId) {
     const resultEl = document.getElementById(`analysis-${postId}`);
     if (!resultEl) return;
-    const textarea = resultEl.querySelector('.analysis-edit-area');
-    if (!textarea) return;
-    const content = textarea.value.trim();
-    if (!content) { showAlert('内容不能为空', 'error'); return; }
+    const input = resultEl.querySelector('.analysis-edit-input');
+    if (!input) return;
+    const newLocation = input.value.trim();
+    if (!newLocation) { showAlert('地点不能为空', 'error'); return; }
 
     try {
         const r = await fetch(`/api/posts/${postId}/analyze`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content }),
+            body: JSON.stringify({ location: newLocation }),
         });
         if (!r.ok) throw new Error((await r.json()).detail || '保存失败');
-        const btnContainer = textarea.nextElementSibling;
-        if (btnContainer) btnContainer.remove();
-        textarea.outerHTML = `<div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${content}</div>`;
-        showAlert('修正已保存。', 'success');
+        location.reload();
     } catch (e) {
         showAlert(e.message, 'error');
     }

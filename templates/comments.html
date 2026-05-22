@@ -127,7 +127,24 @@
                                         <div style="font-size:12px; font-weight:600; color: var(--text-muted);">视频内容分析</div>
                                         <button class="btn btn-ghost btn-xs" onclick="editAnalysis('{{ post.id }}')">修正</button>
                                     </div>
-                                    <div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">{{ post.video_analysis }}</div>
+                                    <div class="analysis-content" data-raw="{{ post.video_analysis | e }}">
+                                        {% if post.video_analysis_json %}
+                                        <div style="margin-bottom:8px;">
+                                            <span style="font-size:12px; font-weight:600; color: var(--text-muted);">拍摄地点：</span>
+                                            <span class="analysis-location" style="font-size:13px; font-weight:500;">{{ post.video_analysis_json.location }}</span>
+                                        </div>
+                                        <div style="margin-bottom:8px;">
+                                            <span style="font-size:12px; font-weight:600; color: var(--text-muted);">人物行为：</span>
+                                            <span style="font-size:13px; line-height:1.6;">{{ post.video_analysis_json.behavior }}</span>
+                                        </div>
+                                        <div>
+                                            <span style="font-size:12px; font-weight:600; color: var(--text-muted);">场景环境：</span>
+                                            <span style="font-size:13px; line-height:1.6;">{{ post.video_analysis_json.environment }}</span>
+                                        </div>
+                                        {% else %}
+                                        <div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">{{ post.video_analysis }}</div>
+                                        {% endif %}
+                                    </div>
                                 </div>
                             </div>
                             {% else %}
