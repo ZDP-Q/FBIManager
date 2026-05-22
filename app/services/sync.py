@@ -127,6 +127,8 @@ class SyncService:
         except Exception as e:
             logger.error("[sync] Background worker failed: %s", e, exc_info=True)
             update_task_status("post_sync", {"msg": f"同步失败: {str(e)}", "done": True, "error": True})
+        finally:
+            await self.facebook.close()
 
     async def sync_post(self, post_id: str) -> dict[str, Any]:
         if self.config.page_id == "default-page":

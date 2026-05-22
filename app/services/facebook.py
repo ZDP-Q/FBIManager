@@ -10,9 +10,30 @@ from app.config import AppConfig
 
 
 class FacebookService:
+    # 并发请求上限，避免触发 Facebook 速率限制
+    _CONCURRENCY_LIMIT = 10
+
     def __init__(self, config: AppConfig):
         self.config = config
         self.base_url = config.graph_base_url
+        self._client: httpx.AsyncClient | None = None
+        self._semaphore = asyncio.Semaphore(self._CONCURRENCY_LIMIT)
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=120.0)
+        return self._client
+
+    async def close(self) -> None:
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> "FacebookService":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
 
     async def _request(
         self,
@@ -28,16 +49,16 @@ class FacebookService:
 
         response: httpx.Response | None = None
         last_exc: Exception | None = None
+        client = self._get_client()
 
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=120.0) as client:
-                    response = await client.request(
-                        method,
-                        f"{self.base_url}/{path.lstrip('/')}",
-                        params=merged_params,
-                        json=json_body,
-                    )
+                response = await client.request(
+                    method,
+                    f"{self.base_url}/{path.lstrip('/')}",
+                    params=merged_params,
+                    json=json_body,
+                )
 
                 if response.status_code == 429 or response.status_code >= 500:
                     if attempt < 2:
@@ -197,19 +218,23 @@ class FacebookService:
             },
         )
         comments = payload.get("data", [])
-        for comment in comments:
-            await self._populate_replies(comment, limit=limit, depth=1, max_depth=max_depth)
+        if comments:
+            await asyncio.gather(*[
+                self._populate_replies(comment, limit=limit, depth=1, max_depth=max_depth)
+                for comment in comments
+            ])
         return comments
 
     async def fetch_replies_for_comment(self, comment_id: str, limit: int = 100) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            f"{comment_id}/comments",
-            params={
-                "fields": "id,message,from,created_time,parent{id}",
-                "limit": limit,
-            },
-        )
+        async with self._semaphore:
+            payload = await self._request(
+                "GET",
+                f"{comment_id}/comments",
+                params={
+                    "fields": "id,message,from,created_time,parent{id}",
+                    "limit": limit,
+                },
+            )
         return payload.get("data", [])
 
     async def _populate_replies(
@@ -229,8 +254,10 @@ class FacebookService:
             return
 
         comment["replies"] = {"data": replies}
-        for reply in replies:
-            await self._populate_replies(reply, limit=limit, depth=depth + 1, max_depth=max_depth)
+        await asyncio.gather(*[
+            self._populate_replies(reply, limit=limit, depth=depth + 1, max_depth=max_depth)
+            for reply in replies
+        ])
 
     async def send_reply(self, comment_id: str, message: str) -> dict[str, Any]:
         return await self._request(
