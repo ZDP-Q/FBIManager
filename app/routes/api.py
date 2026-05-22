@@ -482,6 +482,7 @@ async def activate_prompt_api(payload: ActivatePromptPayload):
         ai_api_base_url=str(model.get("ai_api_base_url", "")),
         ai_api_key=str(model.get("ai_api_key", "")),
         ai_model=str(model.get("ai_model", "")),
+        video_ai_model=str(model.get("video_ai_model", "")),
         prompt_template=payload.filename.strip()
     )
     return {"status": "success"}
