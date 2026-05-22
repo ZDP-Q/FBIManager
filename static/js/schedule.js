@@ -115,21 +115,11 @@ document.addEventListener('DOMContentLoaded', function () {
             try {
                 const r = await fetch(`/api/video/push/${postId}`, { method: 'POST' });
                 if (!r.ok) throw new Error((await r.json()).detail || '推送失败');
-                showAlert('推送成功。', 'success');
-                // Update row UI
-                const row = document.getElementById('row-' + postId);
-                if (row) {
-                    const statusCell = row.querySelector('td:nth-child(7)');
-                    if (statusCell) statusCell.innerHTML = '<span class="badge badge-success">已推送</span>';
-                    // Remove checkbox
-                    const cbCell = row.querySelector('td:first-child');
-                    if (cbCell) cbCell.innerHTML = '';
-                    btn.textContent = '重新推送';
-                }
+                showAlert('推送成功，刷新页面...', 'success');
+                setTimeout(() => location.reload(), 600);
             } catch (e) {
                 showAlert(e.message, 'error');
                 btn.textContent = '推送';
-            } finally {
                 btn.disabled = false;
             }
         });
