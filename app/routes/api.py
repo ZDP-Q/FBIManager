@@ -50,6 +50,7 @@ from app.repositories import (
     get_chat_detailed_stats,
     save_video_analysis,
     get_video_analysis,
+    update_video_analysis,
 )
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
@@ -828,6 +829,17 @@ async def analyze_post_video(post_id: str, force: bool = False):
         logger.warning("[analyze] Failed to save analysis result: %s", exc)
 
     return {"status": "success", "result": result, "cached": False}
+
+
+@router.put("/posts/{post_id}/analyze")
+async def update_post_video_analysis(post_id: str, payload: dict[str, str]):
+    """Update (manually correct) a video analysis result."""
+    content = (payload.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="内容不能为空")
+    if not update_video_analysis(post_id, content):
+        raise HTTPException(status_code=404, detail="未找到该帖子的分析记录")
+    return {"status": "success"}
 
 
 def _parse_fb_timestamp(ts: str) -> int:

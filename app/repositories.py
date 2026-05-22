@@ -1387,6 +1387,23 @@ def save_video_analysis(post_id: str, title: str, content: str, post_time: int) 
             return cursor.lastrowid
 
 
+def update_video_analysis(post_id: str, content: str) -> bool:
+    """Update the latest video analysis content for a post. Returns True if a row was updated."""
+    with get_connection() as connection:
+        with connection:
+            row = connection.execute(
+                "SELECT id FROM video_analyses WHERE post_id = ? ORDER BY created_at DESC LIMIT 1",
+                (post_id,),
+            ).fetchone()
+            if not row:
+                return False
+            connection.execute(
+                "UPDATE video_analyses SET content = ? WHERE id = ?",
+                (content, row["id"]),
+            )
+            return True
+
+
 def get_video_analysis(post_id: str) -> dict[str, Any] | None:
     """Get the latest video analysis for a post."""
     with get_connection() as connection:

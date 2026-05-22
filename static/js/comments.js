@@ -198,8 +198,11 @@ window.analyzePost = async function(postId, btn) {
         if (resultEl) {
             resultEl.innerHTML = `
                 <div style="padding:12px;">
-                    <div style="font-size:12px; font-weight:600; color: var(--text-muted); margin-bottom:6px;">视频内容分析</div>
-                    <div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${res.result}</div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                        <div style="font-size:12px; font-weight:600; color: var(--text-muted);">视频内容分析</div>
+                        <button class="btn btn-ghost btn-xs" onclick="editAnalysis('${postId}')">修正</button>
+                    </div>
+                    <div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${res.result}</div>
                 </div>`;
         }
         showAlert('视频分析完成。', 'success');
@@ -215,6 +218,55 @@ window.analyzePost = async function(postId, btn) {
         }
     }
 }
+
+window.editAnalysis = function(postId) {
+    const resultEl = document.getElementById(`analysis-${postId}`);
+    if (!resultEl) return;
+    const contentEl = resultEl.querySelector('.analysis-content');
+    if (!contentEl) return;
+    const originalText = contentEl.textContent;
+    contentEl.outerHTML = `
+        <textarea class="analysis-edit-area" style="width:100%; min-height:120px; font-size:13px; line-height:1.6; padding:8px; border:1px solid var(--border-color); border-radius:6px; resize:vertical;">${originalText}</textarea>
+        <div style="margin-top:8px; display:flex; gap:6px;">
+            <button class="btn btn-primary btn-xs" onclick="saveAnalysis('${postId}')">保存</button>
+            <button class="btn btn-ghost btn-xs" onclick="cancelEdit('${postId}', this)">取消</button>
+        </div>`;
+};
+
+window.cancelEdit = function(postId, btn) {
+    const resultEl = document.getElementById(`analysis-${postId}`);
+    if (!resultEl) return;
+    const textarea = resultEl.querySelector('.analysis-edit-area');
+    if (!textarea) return;
+    const text = textarea.value;
+    const btnContainer = textarea.nextElementSibling;
+    if (btnContainer) btnContainer.remove();
+    textarea.outerHTML = `<div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${text}</div>`;
+};
+
+window.saveAnalysis = async function(postId) {
+    const resultEl = document.getElementById(`analysis-${postId}`);
+    if (!resultEl) return;
+    const textarea = resultEl.querySelector('.analysis-edit-area');
+    if (!textarea) return;
+    const content = textarea.value.trim();
+    if (!content) { showAlert('内容不能为空', 'error'); return; }
+
+    try {
+        const r = await fetch(`/api/posts/${postId}/analyze`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content }),
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || '保存失败');
+        const btnContainer = textarea.nextElementSibling;
+        if (btnContainer) btnContainer.remove();
+        textarea.outerHTML = `<div class="analysis-content" style="font-size:13px; line-height:1.6; white-space:pre-wrap;">${content}</div>`;
+        showAlert('修正已保存。', 'success');
+    } catch (e) {
+        showAlert(e.message, 'error');
+    }
+};
 
 window.syncPost = async function(postId, btn) {
     if (btn?.disabled) return;
