@@ -744,12 +744,22 @@ async def analyze_post_video(post_id: str, force: bool = False):
     """Analyze a video post: download from Facebook → base64 → LLM → return result.
     Returns cached result unless force=true.
     """
+    from app.registry import set_analyzing, clear_analyzing
+
     # Check cache first
     if not force:
         cached = get_video_analysis(post_id)
         if cached:
             return {"status": "success", "result": cached["content"], "cached": True}
 
+    set_analyzing(post_id)
+    try:
+        return await _do_analyze(post_id, force)
+    finally:
+        clear_analyzing(post_id)
+
+
+async def _do_analyze(post_id: str, force: bool):
     post = get_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="帖子不存在")
@@ -829,6 +839,13 @@ async def analyze_post_video(post_id: str, force: bool = False):
         logger.warning("[analyze] Failed to save analysis result: %s", exc)
 
     return {"status": "success", "result": result, "cached": False}
+
+
+@router.get("/posts/analyzing")
+async def get_analyzing_status():
+    """Return the set of post IDs currently being analyzed."""
+    from app.registry import get_analyzing_posts
+    return {"analyzing": get_analyzing_posts()}
 
 
 @router.put("/posts/{post_id}/analyze")

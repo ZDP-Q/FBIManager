@@ -174,6 +174,27 @@ window.delComment = async function(commentId) {
     }
 }
 
+async function checkAnalyzingPosts() {
+    try {
+        const r = await fetch('/api/posts/analyzing');
+        if (!r.ok) return;
+        const data = await r.json();
+        const analyzing = data.analyzing || {};
+        for (const postId of Object.keys(analyzing)) {
+            const resultEl = document.getElementById(`analysis-${postId}`);
+            if (resultEl) {
+                resultEl.style.display = 'block';
+                resultEl.innerHTML = '<div style="padding:12px; color: var(--text-muted);">正在下载视频并分析中，这可能需要 1-2 分钟...</div>';
+            }
+            const btn = document.getElementById(`btn-analyze-${postId}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '分析中...';
+            }
+        }
+    } catch {}
+}
+
 window.analyzePost = async function(postId, btn) {
     if (btn?.disabled) return;
     const original = btn?.textContent || '分析';
@@ -463,6 +484,7 @@ async function checkOngoingSync() {
 /* Initialize everything after DOM load */
 document.addEventListener('DOMContentLoaded', () => {
     checkOngoingSync();
+    checkAnalyzingPosts();
     // ... (rest of the initializers)
     document.getElementById('btn-sync-custom')?.addEventListener('click', () => {
         const limit = parseInt(document.getElementById('sync-limit')?.value || '20', 10);
