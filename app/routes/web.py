@@ -73,7 +73,7 @@ async def content_page(request: Request, limit: int = 50):
     # 增加限制，避免一次性加载过多历史数据导致页面卡顿
     posts = list_posts(page_id=page_id, limit=limit)
     
-    from app.repositories import list_monitored_post_ids
+    from app.repositories import list_monitored_post_ids, get_video_analysis
     monitored_post_ids = list_monitored_post_ids(page_id=page_id)
 
     from collections import defaultdict
@@ -81,11 +81,13 @@ async def content_page(request: Request, limit: int = 50):
 
     for post in posts:
         msg = post.get("message") or ""
+        analysis = get_video_analysis(post["id"]) if post.get("type") == "video" else None
         post_data = {
             **post,
             "has_monitor": post["id"] in monitored_post_ids,
             "message_display": (msg[:300] + "...") if len(msg) > 300 else msg,
-            "comments_count": post.get("local_comment_count", 0), 
+            "comments_count": post.get("local_comment_count", 0),
+            "video_analysis": analysis.get("content", "") if analysis else "",
         }
         
         date_str = "未知日期"

@@ -120,7 +120,16 @@
 
                         <!-- Post body -->
                         <div class="post-body">
+                            {% if post.video_analysis %}
+                            <div class="video-analysis-result" id="analysis-{{ post.id }}" style="display:block;">
+                                <div style="padding:12px;">
+                                    <div style="font-size:12px; font-weight:600; color: var(--text-muted); margin-bottom:6px;">视频内容分析</div>
+                                    <div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">{{ post.video_analysis }}</div>
+                                </div>
+                            </div>
+                            {% else %}
                             <div class="video-analysis-result" id="analysis-{{ post.id }}" style="display:none;"></div>
+                            {% endif %}
                             <div class="comment-list" id="comment-list-{{ post.id }}">
                                 <div class="empty-state" style="padding:20px">
                                     <p>正在加载评论...</p>
