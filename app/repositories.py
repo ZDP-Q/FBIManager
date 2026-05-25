@@ -316,8 +316,14 @@ def _insert_comment(connection, post_id: str, parent_comment_id: str | None, com
 
     connection.execute(
         """
-        INSERT OR REPLACE INTO comments (id, post_id, parent_comment_id, message, author_name, author_id, created_time, raw_json, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO comments (id, post_id, parent_comment_id, message, author_name, author_id, created_time, raw_json, screened, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+            message = excluded.message,
+            author_name = excluded.author_name,
+            author_id = excluded.author_id,
+            raw_json = excluded.raw_json,
+            synced_at = CURRENT_TIMESTAMP
         """,
         (
             comment["id"],
@@ -448,12 +454,34 @@ def delete_comment_local(comment_id: str) -> None:
             connection.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
 
 
+def get_screened_comment_ids(post_id: str) -> set[str]:
+    """Return comment IDs that have already been screened for a given post."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT id FROM comments WHERE post_id = ? AND screened = 1",
+            (post_id,),
+        ).fetchall()
+    return {row["id"] for row in rows}
+
+
+def mark_comments_screened(comment_ids: list[str]) -> None:
+    """Mark comments as screened so they are skipped in future monitor cycles."""
+    if not comment_ids:
+        return
+    placeholders = ",".join("?" for _ in comment_ids)
+    with get_connection() as connection:
+        with connection:
+            connection.execute(
+                f"UPDATE comments SET screened = 1 WHERE id IN ({placeholders})",
+                comment_ids,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Post monitors
 # ---------------------------------------------------------------------------
 
-def create_monitor(post_id: str, interval_seconds: int = 300, max_depth: int = 1) -> int:
+def create_monitor(post_id: str, interval_seconds: int = 1800, max_depth: int = 1) -> int:
     with get_connection() as connection:
         with connection:
             connection.execute(
@@ -716,8 +744,8 @@ def upsert_comment(post_id: str, parent_comment_id: str | None, comment: dict[st
         with connection:
             connection.execute(
                 """
-                INSERT INTO comments (id, post_id, parent_comment_id, message, author_name, author_id, created_time, raw_json, synced_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO comments (id, post_id, parent_comment_id, message, author_name, author_id, created_time, raw_json, screened, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     message = excluded.message,
                     author_name = excluded.author_name,

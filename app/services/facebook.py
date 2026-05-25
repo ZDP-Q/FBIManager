@@ -208,32 +208,50 @@ class FacebookService:
             params={"fields": "id,message,created_time,permalink_url"},
         )
 
-    async def fetch_comments_for_post(self, post_id: str, limit: int = 100, max_depth: int = 20) -> list[dict[str, Any]]:
+    async def fetch_comments_for_post(self, post_id: str, limit: int = 100, max_depth: int = 20, since: int | None = None, after: str = "") -> tuple[list[dict[str, Any]], dict[str, str]]:
+        """Fetch comments for a post. Returns (comments, cursors_dict).
+
+        Cursors dict contains 'before' and 'after' for pagination.
+        Pass 'after' to get the next page of results.
+        Pass 'since' (unix timestamp) to only get comments created after that time.
+        """
+        params: dict[str, Any] = {
+            "fields": "id,message,from,created_time,parent{id}",
+            "limit": limit,
+            "order": "reverse_chronological",
+        }
+        if since:
+            params["since"] = since
+        if after:
+            params["after"] = after
+
         payload = await self._request(
             "GET",
             f"{post_id}/comments",
-            params={
-                "fields": "id,message,from,created_time,parent{id}",
-                "limit": limit,
-            },
+            params=params,
         )
         comments = payload.get("data", [])
+        cursors = payload.get("paging", {}).get("cursors", {})
         if comments:
             await asyncio.gather(*[
-                self._populate_replies(comment, limit=limit, depth=1, max_depth=max_depth)
+                self._populate_replies(comment, limit=limit, depth=1, max_depth=max_depth, since=since)
                 for comment in comments
             ])
-        return comments
+        return comments, {"before": cursors.get("before", ""), "after": cursors.get("after", "")}
 
-    async def fetch_replies_for_comment(self, comment_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    async def fetch_replies_for_comment(self, comment_id: str, limit: int = 100, since: int | None = None) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "fields": "id,message,from,created_time,parent{id}",
+            "limit": limit,
+        }
+        if since:
+            params["since"] = since
+
         async with self._semaphore:
             payload = await self._request(
                 "GET",
                 f"{comment_id}/comments",
-                params={
-                    "fields": "id,message,from,created_time,parent{id}",
-                    "limit": limit,
-                },
+                params=params,
             )
         return payload.get("data", [])
 
@@ -244,18 +262,19 @@ class FacebookService:
         limit: int,
         depth: int,
         max_depth: int,
+        since: int | None = None,
     ) -> None:
         comment_id = str(comment.get("id", ""))
         if not comment_id or depth >= max_depth:
             return
 
-        replies = await self.fetch_replies_for_comment(comment_id, limit=limit)
+        replies = await self.fetch_replies_for_comment(comment_id, limit=limit, since=since)
         if not replies:
             return
 
         comment["replies"] = {"data": replies}
         await asyncio.gather(*[
-            self._populate_replies(reply, limit=limit, depth=depth + 1, max_depth=max_depth)
+            self._populate_replies(reply, limit=limit, depth=depth + 1, max_depth=max_depth, since=since)
             for reply in replies
         ])
 

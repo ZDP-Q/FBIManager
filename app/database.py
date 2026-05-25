@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS post_monitors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id TEXT NOT NULL UNIQUE,
     enabled INTEGER NOT NULL DEFAULT 1,
-    interval_seconds INTEGER NOT NULL DEFAULT 300,
+    interval_seconds INTEGER NOT NULL DEFAULT 1800,
     max_depth INTEGER NOT NULL DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     last_run_at TEXT,
@@ -240,6 +240,11 @@ def init_db() -> None:
 
         try:
             connection.execute("ALTER TABLE video_analyses ADD COLUMN pushed_at TEXT DEFAULT NULL")
+        except Exception:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE comments ADD COLUMN screened INTEGER NOT NULL DEFAULT 0")
         except Exception:
             pass
 
