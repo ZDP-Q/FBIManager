@@ -73,14 +73,18 @@ async function loadSettings() {
     renderAccountSelect();
 
     const model = data.model || {};
-    const baseUrlEl = document.getElementById('model-base-url');
-    if (baseUrlEl) baseUrlEl.value = model.ai_api_base_url || '';
-    const apiKeyEl = document.getElementById('model-api-key');
-    if (apiKeyEl) apiKeyEl.value = model.ai_api_key || '';
-    const modelNameEl = document.getElementById('model-name');
-    if (modelNameEl) modelNameEl.value = model.ai_model || '';
-    const videoModelEl = document.getElementById('video-model-name');
-    if (videoModelEl) videoModelEl.value = model.video_ai_model || '';
+    const replyUrlEl = document.getElementById('reply-base-url');
+    if (replyUrlEl) replyUrlEl.value = model.reply_api_base_url || '';
+    const replyKeyEl = document.getElementById('reply-api-key');
+    if (replyKeyEl) replyKeyEl.value = model.reply_api_key || '';
+    const replyModelEl = document.getElementById('reply-model');
+    if (replyModelEl) replyModelEl.value = model.reply_model || '';
+    const videoUrlEl = document.getElementById('video-base-url');
+    if (videoUrlEl) videoUrlEl.value = model.video_api_base_url || '';
+    const videoKeyEl = document.getElementById('video-api-key');
+    if (videoKeyEl) videoKeyEl.value = model.video_api_key || '';
+    const videoModelEl = document.getElementById('video-model');
+    if (videoModelEl) videoModelEl.value = model.video_model || '';
 }
 
 async function saveAccount() {
@@ -273,10 +277,12 @@ document.getElementById('input-account-import')?.addEventListener('change', asyn
 
 document.getElementById('btn-model-save')?.addEventListener('click', async () => {
     const payload = {
-        ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
-        ai_api_key: (document.getElementById('model-api-key')?.value || '').trim(),
-        ai_model: (document.getElementById('model-name')?.value || '').trim(),
-        video_ai_model: (document.getElementById('video-model-name')?.value || '').trim(),
+        reply_api_base_url: (document.getElementById('reply-base-url')?.value || '').trim(),
+        reply_api_key: (document.getElementById('reply-api-key')?.value || '').trim(),
+        reply_model: (document.getElementById('reply-model')?.value || '').trim(),
+        video_api_base_url: (document.getElementById('video-base-url')?.value || '').trim(),
+        video_api_key: (document.getElementById('video-api-key')?.value || '').trim(),
+        video_model: (document.getElementById('video-model')?.value || '').trim(),
     };
 
     try {
@@ -292,21 +298,25 @@ document.getElementById('btn-model-save')?.addEventListener('click', async () =>
     }
 });
 
-document.getElementById('btn-model-test')?.addEventListener('click', async () => {
+async function _testModel(type) {
     const payload = {
-        ai_api_base_url: (document.getElementById('model-base-url')?.value || '').trim(),
-        ai_api_key: (document.getElementById('model-api-key')?.value || '').trim(),
-        ai_model: (document.getElementById('model-name')?.value || '').trim(),
-        video_ai_model: (document.getElementById('video-model-name')?.value || '').trim(),
+        reply_api_base_url: (document.getElementById('reply-base-url')?.value || '').trim(),
+        reply_api_key: (document.getElementById('reply-api-key')?.value || '').trim(),
+        reply_model: (document.getElementById('reply-model')?.value || '').trim(),
+        video_api_base_url: (document.getElementById('video-base-url')?.value || '').trim(),
+        video_api_key: (document.getElementById('video-api-key')?.value || '').trim(),
+        video_model: (document.getElementById('video-model')?.value || '').trim(),
     };
 
-    const btn = document.getElementById('btn-model-test');
+    const btn = document.getElementById(type === 'video' ? 'btn-video-test' : 'btn-reply-test');
+    const label = type === 'video' ? '视频' : '回复';
     btn.disabled = true;
     btn.textContent = '测试中...';
-    showAlert('正在测试 AI 连接，请稍候...', 'info');
+    showAlert(`正在测试${label}模型连接，请稍候...`, 'info');
 
+    const url = type === 'video' ? '/api/settings/model/test-video' : '/api/settings/model/test';
     try {
-        const r = await fetch('/api/settings/model/test', {
+        const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -318,9 +328,12 @@ document.getElementById('btn-model-test')?.addEventListener('click', async () =>
         showAlert(e.message, 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = '测试配置';
+        btn.textContent = `测试${label}`;
     }
-});
+}
+
+document.getElementById('btn-reply-test')?.addEventListener('click', () => _testModel('reply'));
+document.getElementById('btn-video-test')?.addEventListener('click', () => _testModel('video'));
 
 document.getElementById('btn-change-password')?.addEventListener('click', async () => {
     const oldPassword = (document.getElementById('admin-old-password')?.value || '').trim();

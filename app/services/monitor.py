@@ -339,6 +339,8 @@ class MonitorService:
             if has_replied(c["id"]):
                 already_replied_count += 1
                 continue
+            if not (c.get("message") or "").strip():
+                continue
             scorable.append(c)
 
         stats = {"replied": 0, "skipped": 0, "scored": len(scorable), "total": len(pending), "already": already_replied_count}

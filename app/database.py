@@ -102,9 +102,12 @@ CREATE INDEX IF NOT EXISTS idx_account_active ON account_configs(is_active);
 
 CREATE TABLE IF NOT EXISTS model_configs (
     id INTEGER PRIMARY KEY CHECK(id = 1),
-    ai_api_base_url TEXT NOT NULL DEFAULT '',
-    ai_api_key TEXT NOT NULL DEFAULT '',
-    ai_model TEXT NOT NULL DEFAULT '',
+    reply_api_base_url TEXT NOT NULL DEFAULT '',
+    reply_api_key TEXT NOT NULL DEFAULT '',
+    reply_model TEXT NOT NULL DEFAULT '',
+    video_api_base_url TEXT NOT NULL DEFAULT '',
+    video_api_key TEXT NOT NULL DEFAULT '',
+    video_model TEXT NOT NULL DEFAULT '',
     prompt_template TEXT NOT NULL DEFAULT 'reply_prompt.j2',
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -243,6 +246,47 @@ def init_db() -> None:
         except Exception:
             pass
 
+        # Migration: split model_configs into reply + video
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN reply_api_base_url TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN reply_api_key TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN reply_model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN video_api_base_url TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN video_api_key TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            connection.execute("ALTER TABLE model_configs ADD COLUMN video_model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+
+        # Migrate: copy old ai_* columns to reply_* (one-time)
+        try:
+            connection.execute(
+                "UPDATE model_configs SET "
+                "reply_api_base_url = COALESCE(NULLIF(ai_api_base_url, ''), reply_api_base_url), "
+                "reply_api_key = COALESCE(NULLIF(ai_api_key, ''), reply_api_key), "
+                "reply_model = COALESCE(NULLIF(ai_model, ''), reply_model), "
+                "video_model = COALESCE(NULLIF(video_ai_model, ''), video_model), "
+                "video_api_base_url = COALESCE(NULLIF(ai_api_base_url, ''), video_api_base_url), "
+                "video_api_key = COALESCE(NULLIF(ai_api_key, ''), video_api_key) "
+                "WHERE reply_api_base_url = '' OR reply_api_key = '' OR reply_model = ''"
+            )
+        except Exception:
+            pass
+
         try:
             connection.execute("ALTER TABLE comments ADD COLUMN screened INTEGER NOT NULL DEFAULT 0")
         except Exception:
@@ -296,13 +340,13 @@ def _seed_settings_from_legacy_json_if_needed() -> None:
         connection.execute(
             """
             INSERT INTO model_configs (
-                id, ai_api_base_url, ai_api_key, ai_model, updated_at
+                id, reply_api_base_url, reply_api_key, reply_model, updated_at
             )
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
-                ai_api_base_url = excluded.ai_api_base_url,
-                ai_api_key = excluded.ai_api_key,
-                ai_model = excluded.ai_model,
+                reply_api_base_url = excluded.reply_api_base_url,
+                reply_api_key = excluded.reply_api_key,
+                reply_model = excluded.reply_model,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (

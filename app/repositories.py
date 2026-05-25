@@ -180,7 +180,9 @@ def get_model_config() -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, ai_api_base_url, ai_api_key, ai_model, video_ai_model, prompt_template, updated_at
+            SELECT id, reply_api_base_url, reply_api_key, reply_model,
+                   video_api_base_url, video_api_key, video_model,
+                   prompt_template, updated_at
             FROM model_configs
             WHERE id = 1
             """
@@ -188,22 +190,37 @@ def get_model_config() -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def upsert_model_config(*, ai_api_base_url: str, ai_api_key: str, ai_model: str, video_ai_model: str = '', prompt_template: str = 'reply_prompt.j2') -> None:
+def upsert_model_config(
+    *,
+    reply_api_base_url: str = '',
+    reply_api_key: str = '',
+    reply_model: str = '',
+    video_api_base_url: str = '',
+    video_api_key: str = '',
+    video_model: str = '',
+    prompt_template: str = 'reply_prompt.j2',
+) -> None:
     with get_connection() as connection:
         with connection:
             connection.execute(
                 """
-                INSERT INTO model_configs (id, ai_api_base_url, ai_api_key, ai_model, video_ai_model, prompt_template, updated_at)
-                VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO model_configs (id, reply_api_base_url, reply_api_key, reply_model,
+                    video_api_base_url, video_api_key, video_model,
+                    prompt_template, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
-                    ai_api_base_url = excluded.ai_api_base_url,
-                    ai_api_key = excluded.ai_api_key,
-                    ai_model = excluded.ai_model,
-                    video_ai_model = excluded.video_ai_model,
+                    reply_api_base_url = excluded.reply_api_base_url,
+                    reply_api_key = excluded.reply_api_key,
+                    reply_model = excluded.reply_model,
+                    video_api_base_url = excluded.video_api_base_url,
+                    video_api_key = excluded.video_api_key,
+                    video_model = excluded.video_model,
                     prompt_template = excluded.prompt_template,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (ai_api_base_url, ai_api_key, ai_model, video_ai_model, prompt_template),
+                (reply_api_base_url, reply_api_key, reply_model,
+                 video_api_base_url, video_api_key, video_model,
+                 prompt_template),
             )
 
 

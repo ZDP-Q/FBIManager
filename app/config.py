@@ -16,10 +16,14 @@ class AppConfig:
     verify_token: str
     page_id: str
     api_version: str = "v25.0"
-    ai_api_base_url: str = ""
-    ai_api_key: str = ""
-    ai_model: str = ""
-    video_ai_model: str = ""
+    # Reply model
+    reply_api_base_url: str = ""
+    reply_api_key: str = ""
+    reply_model: str = ""
+    # Video model
+    video_api_base_url: str = ""
+    video_api_key: str = ""
+    video_model: str = ""
     prompt_template: str = "reply_prompt.j2"
 
     @property
@@ -27,8 +31,12 @@ class AppConfig:
         return f"https://graph.facebook.com/{self.api_version}"
 
     @property
-    def ai_enabled(self) -> bool:
-        return bool(self.ai_api_base_url and self.ai_api_key and self.ai_model)
+    def reply_enabled(self) -> bool:
+        return bool(self.reply_api_base_url and self.reply_api_key and self.reply_model)
+
+    @property
+    def video_enabled(self) -> bool:
+        return bool(self.video_api_base_url and self.video_api_key and self.video_model)
 
 
 def read_legacy_json_config() -> dict:
@@ -84,9 +92,11 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         verify_token=str(account.get("verify_token", "")),
         page_id=str(account.get("page_id", "")),
         api_version=str(account.get("api_version", "v25.0") or "v25.0"),
-        ai_api_base_url=str(model.get("ai_api_base_url", "")),
-        ai_api_key=str(model.get("ai_api_key", "")),
-        ai_model=str(model.get("ai_model", "")),
-        video_ai_model=str(model.get("video_ai_model", "")),
+        reply_api_base_url=str(model.get("reply_api_base_url", "")),
+        reply_api_key=str(model.get("reply_api_key", "")),
+        reply_model=str(model.get("reply_model", "")),
+        video_api_base_url=str(model.get("video_api_base_url", "")),
+        video_api_key=str(model.get("video_api_key", "")),
+        video_model=str(model.get("video_model", "")),
         prompt_template=prompt_template,
     )

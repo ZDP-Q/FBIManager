@@ -33,8 +33,8 @@ _DEFAULT_TEMPLATE = (
     "- 不要输出解释、分析、步骤、标题，不要加引号，不要前缀。\n"
     "- 可以轻微调情和玩笑，但保持分寸、自然推进，不要突兀。\n\n"
     "语言适配规则（必须遵守）：\n"
-    "- 回复语言必须与“评论内容”的主要语言保持一致。\n"
-    "- 如果“评论内容”很短或语言不明确，则参考“被回复的原评论”的主要语言。\n"
+    "- 回复语言必须与\"评论内容\"的主要语言保持一致。\n"
+    "- 如果\"评论内容\"很短或语言不明确，则参考\"被回复的原评论\"的主要语言。\n"
     "- 如果仍无法判断，则默认使用简体中文。\n"
     "- 不要额外说明你在切换语言，直接用对应语言回复。\n\n"
     "任务：\n"
@@ -79,11 +79,40 @@ class AIReplyService:
     def __init__(self, config: AppConfig):
         self.config = config
 
-    def _chat_completions_url(self) -> str:
-        base_url = self.config.ai_api_base_url.rstrip("/")
-        if base_url.endswith("/chat/completions"):
-            return base_url
-        return f"{base_url}/chat/completions"
+    def _chat_completions_url(self, base_url: str) -> str:
+        url = base_url.rstrip("/")
+        if url.endswith("/chat/completions"):
+            return url
+        return f"{url}/chat/completions"
+
+    # ---- Reply-model helpers ----
+
+    @property
+    def _reply_url(self) -> str:
+        return self._chat_completions_url(self.config.reply_api_base_url)
+
+    @property
+    def _reply_model(self) -> str:
+        return self.config.reply_model
+
+    @property
+    def _reply_key(self) -> str:
+        return self.config.reply_api_key
+
+    # ---- Video-model helpers (fallback to reply) ----
+
+    @property
+    def _video_url(self) -> str:
+        base = self.config.video_api_base_url or self.config.reply_api_base_url
+        return self._chat_completions_url(base)
+
+    @property
+    def _video_model(self) -> str:
+        return self.config.video_model or self.config.reply_model
+
+    @property
+    def _video_key(self) -> str:
+        return self.config.video_api_key or self.config.reply_api_key
 
     def _looks_like_unsupported_param(self, detail: str) -> bool:
         text = (detail or "").lower()
@@ -99,6 +128,10 @@ class AIReplyService:
         ]
         return any(m in text for m in markers)
 
+    # ------------------------------------------------------------------
+    # Reply generation
+    # ------------------------------------------------------------------
+
     async def generate_reply(
         self,
         *,
@@ -110,8 +143,8 @@ class AIReplyService:
         previous_replies: list[dict[str, Any]] | None = None,
         video_analysis: str = "",
     ) -> str:
-        if not self.config.ai_enabled:
-            raise RuntimeError("AI 配置不完整，请先在 config.json 中填写 AI_API_BASE_URL、AI_API_KEY 和 AI_MODEL")
+        if not self.config.reply_enabled:
+            raise RuntimeError("AI 回复配置不完整，请先在设置中填写回复模型的 API 配置")
 
         user_content = _build_user_prompt(
             page_name=page_name,
@@ -125,7 +158,7 @@ class AIReplyService:
         )
 
         payload_base: dict[str, Any] = {
-            "model": self.config.ai_model,
+            "model": self._reply_model,
             "temperature": 0.4,
             "max_tokens": 180,
             "stream": False,
@@ -134,7 +167,6 @@ class AIReplyService:
             ],
         }
 
-        # Prefer non-thinking mode for faster comment replies.
         payload_fast = {
             **payload_base,
             "enable_thinking": False,
@@ -142,7 +174,7 @@ class AIReplyService:
         }
 
         headers = {
-            "Authorization": f"Bearer {self.config.ai_api_key}",
+            "Authorization": f"Bearer {self._reply_key}",
             "Content-Type": "application/json",
         }
 
@@ -152,7 +184,7 @@ class AIReplyService:
         async with httpx.AsyncClient(timeout=35.0) as client:
             for attempt in range(3):
                 try:
-                    response = await client.post(self._chat_completions_url(), headers=headers, json=payload_fast)
+                    response = await client.post(self._reply_url, headers=headers, json=payload_fast)
 
                     if response.status_code >= 400:
                         detail = response.text
@@ -161,10 +193,9 @@ class AIReplyService:
                         except ValueError:
                             pass
 
-                        # Some OpenAI-compatible providers reject custom reasoning fields.
                         if self._looks_like_unsupported_param(detail):
-                            response = await client.post(self._chat_completions_url(), headers=headers, json=payload_base)
-                    
+                            response = await client.post(self._reply_url, headers=headers, json=payload_base)
+
                     if response.status_code >= 500:
                         if attempt < 2:
                             await asyncio.sleep(1.0 * (2 ** attempt))
@@ -198,27 +229,28 @@ class AIReplyService:
             raise RuntimeError("AI 接口返回了空内容")
         return content
 
+    # ------------------------------------------------------------------
+    # Connection tests
+    # ------------------------------------------------------------------
+
     async def test_connection(self) -> str:
-        """Tests the connection to the LLM with a simple prompt."""
-        if not self.config.ai_api_base_url or not self.config.ai_api_key or not self.config.ai_model:
-            raise RuntimeError("请先填写 AI_API_BASE_URL、AI_API_KEY 和 AI_MODEL")
+        """Backward-compatible: tests the reply model."""
+        return await self.test_reply_connection()
+
+    async def test_reply_connection(self) -> str:
+        if not self.config.reply_enabled:
+            raise RuntimeError("请先填写回复模型的 API 配置")
 
         payload = {
-            "model": self.config.ai_model,
-            "messages": [
-                {"role": "user", "content": "hi"},
-            ],
+            "model": self._reply_model,
+            "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 5,
         }
-
-        headers = {
-            "Authorization": f"Bearer {self.config.ai_api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Authorization": f"Bearer {self._reply_key}", "Content-Type": "application/json"}
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+                response = await client.post(self._reply_url, headers=headers, json=payload)
                 if response.status_code >= 400:
                     detail = response.text
                     try:
@@ -226,10 +258,38 @@ class AIReplyService:
                     except ValueError:
                         pass
                     raise RuntimeError(f"连接失败 ({response.status_code}): {detail}")
-
-                return "连接成功！AI 已响应。"
+                return "连接成功！回复模型已响应。"
             except httpx.RequestError as exc:
                 raise RuntimeError(f"网络请求失败: {exc}") from exc
+
+    async def test_video_connection(self) -> str:
+        if not self.config.video_enabled and not self.config.reply_enabled:
+            raise RuntimeError("请先填写视频模型的 API 配置（或回复模型作为备选）")
+
+        payload = {
+            "model": self._video_model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 5,
+        }
+        headers = {"Authorization": f"Bearer {self._video_key}", "Content-Type": "application/json"}
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.post(self._video_url, headers=headers, json=payload)
+                if response.status_code >= 400:
+                    detail = response.text
+                    try:
+                        detail = response.json().get("error", {}).get("message", detail)
+                    except ValueError:
+                        pass
+                    raise RuntimeError(f"连接失败 ({response.status_code}): {detail}")
+                return "连接成功！视频模型已响应。"
+            except httpx.RequestError as exc:
+                raise RuntimeError(f"网络请求失败: {exc}") from exc
+
+    # ------------------------------------------------------------------
+    # Comment screening (legacy, kept for potential direct use)
+    # ------------------------------------------------------------------
 
     async def screen_comment(
         self,
@@ -238,11 +298,10 @@ class AIReplyService:
         comment_author: str,
     ) -> bool:
         """Lightweight LLM call to decide if a comment is worth replying to.
-
         Returns True if the comment has conversion potential, False to skip.
         Fails open (returns True on any error).
         """
-        if not self.config.ai_enabled:
+        if not self.config.reply_enabled:
             return True
 
         prompt = (
@@ -255,28 +314,28 @@ class AIReplyService:
         )
 
         payload = {
-            "model": self.config.ai_model,
+            "model": self._reply_model,
             "temperature": 0.1,
             "max_tokens": 10,
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
         }
-
-        headers = {
-            "Authorization": f"Bearer {self.config.ai_api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Authorization": f"Bearer {self._reply_key}", "Content-Type": "application/json"}
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+                response = await client.post(self._reply_url, headers=headers, json=payload)
                 if response.status_code >= 400:
-                    return True  # fail-open
+                    return True
                 data = response.json()
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
                 return "REPLY" in content
         except Exception:
-            return True  # fail-open
+            return True
+
+    # ------------------------------------------------------------------
+    # Batch comment scoring
+    # ------------------------------------------------------------------
 
     async def score_comments(
         self,
@@ -286,11 +345,10 @@ class AIReplyService:
         comments: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Batch score comments for target user potential (0-100).
-
         Returns list of {id, score}, sorted by score descending.
         Fails open: returns all comments with score=50 on any error.
         """
-        if not self.config.ai_enabled or not comments:
+        if not self.config.reply_enabled or not comments:
             return [{"id": c["id"], "score": 50} for c in comments]
 
         comment_lines = []
@@ -319,38 +377,31 @@ class AIReplyService:
         )
 
         payload = {
-            "model": self.config.ai_model,
+            "model": self._reply_model,
             "temperature": 0.1,
             "max_tokens": 500,
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
         }
-
-        headers = {
-            "Authorization": f"Bearer {self.config.ai_api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Authorization": f"Bearer {self._reply_key}", "Content-Type": "application/json"}
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+                response = await client.post(self._reply_url, headers=headers, json=payload)
                 if response.status_code >= 400:
                     return [{"id": c["id"], "score": 50} for c in comments]
                 data = response.json()
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
 
-            # Parse JSON array from response
             scored = json.loads(content)
             if not isinstance(scored, list):
                 return [{"id": c["id"], "score": 50} for c in comments]
 
-            # Build lookup and preserve order
             result = []
             for item in scored:
                 if isinstance(item, dict) and "id" in item and "score" in item:
                     result.append({"id": str(item["id"]), "score": int(item["score"])})
 
-            # Fill in any missing comments with score=50
             scored_ids = {r["id"] for r in result}
             for c in comments:
                 if c["id"] not in scored_ids:
@@ -361,9 +412,13 @@ class AIReplyService:
         except Exception:
             return [{"id": c["id"], "score": 50} for c in comments]
 
+    # ------------------------------------------------------------------
+    # Video analysis
+    # ------------------------------------------------------------------
+
     async def analyze_video(self, video_base64: str) -> str:
-        """Analyze a video using LLM with base64-encoded video data."""
-        if not self.config.ai_enabled:
+        """Analyze a video using the video LLM (falls back to reply config)."""
+        if not self.config.video_enabled and not self.config.reply_enabled:
             raise RuntimeError("AI 配置不完整，请先在设置中填写 AI 配置")
 
         data_url = f"data:video/mp4;base64,{video_base64}"
@@ -380,9 +435,8 @@ class AIReplyService:
             "请基于你观察到的具体画面细节进行分析，不要凭空猜测。"
         )
 
-        model = self.config.video_ai_model or self.config.ai_model
         payload = {
-            "model": model,
+            "model": self._video_model,
             "messages": [
                 {
                     "role": "user",
@@ -433,12 +487,12 @@ class AIReplyService:
         }
 
         headers = {
-            "Authorization": f"Bearer {self.config.ai_api_key}",
+            "Authorization": f"Bearer {self._video_key}",
             "Content-Type": "application/json",
         }
 
         async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+            response = await client.post(self._video_url, headers=headers, json=payload)
             if response.status_code >= 400:
                 detail = response.text
                 try:

@@ -104,28 +104,44 @@
     <div class="card-header">
         <span class="card-title">模型配置</span>
         <div class="page-actions" style="margin: 0">
-            <button class="btn btn-secondary btn-sm" id="btn-model-test">测试配置</button>
+            <button class="btn btn-secondary btn-sm" id="btn-reply-test">测试回复</button>
+            <button class="btn btn-secondary btn-sm" id="btn-video-test">测试视频</button>
             <button class="btn btn-primary btn-sm" id="btn-model-save">保存模型配置</button>
         </div>
     </div>
     <div class="card-body">
+        <!-- 回复模型 -->
+        <h4 style="margin: 0 0 12px; font-size: 14px; color: var(--accent);">回复模型</h4>
         <div class="form-row">
             <div class="form-group">
-                <label for="model-base-url">AI_API_BASE_URL</label>
-                <input type="text" id="model-base-url" placeholder="例如：https://.../v1">
+                <label for="reply-base-url">API Base URL</label>
+                <input type="text" id="reply-base-url" placeholder="例如：https://.../v1">
             </div>
             <div class="form-group">
-                <label for="model-name">AI_MODEL</label>
-                <input type="text" id="model-name" placeholder="例如：qwen3.5-plus">
+                <label for="reply-model">Model</label>
+                <input type="text" id="reply-model" placeholder="例如：qwen3.5-plus">
             </div>
         </div>
         <div class="form-group">
-            <label for="model-api-key">AI_API_KEY</label>
-            <input type="password" id="model-api-key" placeholder="输入 API Key">
+            <label for="reply-api-key">API Key</label>
+            <input type="password" id="reply-api-key" placeholder="输入 API Key">
+        </div>
+
+        <!-- 视频模型 -->
+        <h4 style="margin: 20px 0 12px; font-size: 14px; color: var(--accent);">视频理解模型（留空则使用回复模型配置）</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="video-base-url">API Base URL</label>
+                <input type="text" id="video-base-url" placeholder="留空则使用回复模型的 URL">
+            </div>
+            <div class="form-group">
+                <label for="video-model">Model</label>
+                <input type="text" id="video-model" placeholder="例如：doubao-seed-2-0-pro">
+            </div>
         </div>
         <div class="form-group">
-            <label for="video-model-name">视频分析模型（可选，留空则使用上方 AI_MODEL）</label>
-            <input type="text" id="video-model-name" placeholder="例如：doubao-seed-2-0-pro-260215">
+            <label for="video-api-key">API Key</label>
+            <input type="password" id="video-api-key" placeholder="留空则使用回复模型的 Key">
         </div>
     </div>
 </div>

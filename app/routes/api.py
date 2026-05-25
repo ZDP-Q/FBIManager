@@ -103,10 +103,12 @@ class AccountPayload(BaseModel):
 
 
 class ModelConfigPayload(BaseModel):
-    ai_api_base_url: str = ""
-    ai_api_key: str = ""
-    ai_model: str = ""
-    video_ai_model: str = ""
+    reply_api_base_url: str = ""
+    reply_api_key: str = ""
+    reply_model: str = ""
+    video_api_base_url: str = ""
+    video_api_key: str = ""
+    video_model: str = ""
     prompt_template: str = "reply_prompt.j2"
 
 
@@ -128,9 +130,12 @@ async def get_settings():
     accounts = list_accounts()
     active = get_active_account()
     model = get_model_config() or {
-        "ai_api_base_url": "",
-        "ai_api_key": "",
-        "ai_model": "",
+        "reply_api_base_url": "",
+        "reply_api_key": "",
+        "reply_model": "",
+        "video_api_base_url": "",
+        "video_api_key": "",
+        "video_model": "",
     }
     return {
         "accounts": accounts,
@@ -234,10 +239,12 @@ async def import_accounts_api(payload: list[dict]):
 @router.put("/settings/model")
 async def update_model_api(payload: ModelConfigPayload):
     upsert_model_config(
-        ai_api_base_url=payload.ai_api_base_url.strip(),
-        ai_api_key=payload.ai_api_key.strip(),
-        ai_model=payload.ai_model.strip(),
-        video_ai_model=payload.video_ai_model.strip(),
+        reply_api_base_url=payload.reply_api_base_url.strip(),
+        reply_api_key=payload.reply_api_key.strip(),
+        reply_model=payload.reply_model.strip(),
+        video_api_base_url=payload.video_api_base_url.strip(),
+        video_api_key=payload.video_api_key.strip(),
+        video_model=payload.video_model.strip(),
         prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
     )
     return {"status": "success"}
@@ -246,22 +253,48 @@ async def update_model_api(payload: ModelConfigPayload):
 @router.post("/settings/model/test")
 async def test_model_api(payload: ModelConfigPayload):
     from app.config import AppConfig
-    # Use the payload values instead of saved config for testing
     temp_config = AppConfig(
         account_id=0,
         account_name="",
         page_access_token="",
         verify_token="",
         page_id="",
-        ai_api_base_url=payload.ai_api_base_url.strip(),
-        ai_api_key=payload.ai_api_key.strip(),
-        ai_model=payload.ai_model.strip(),
-        video_ai_model=payload.video_ai_model.strip(),
+        reply_api_base_url=payload.reply_api_base_url.strip(),
+        reply_api_key=payload.reply_api_key.strip(),
+        reply_model=payload.reply_model.strip(),
+        video_api_base_url=payload.video_api_base_url.strip(),
+        video_api_key=payload.video_api_key.strip(),
+        video_model=payload.video_model.strip(),
         prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
     )
     ai_service = AIReplyService(temp_config)
     try:
-        result = await ai_service.test_connection()
+        result = await ai_service.test_reply_connection()
+        return {"status": "success", "message": result}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/settings/model/test-video")
+async def test_video_model_api(payload: ModelConfigPayload):
+    from app.config import AppConfig
+    temp_config = AppConfig(
+        account_id=0,
+        account_name="",
+        page_access_token="",
+        verify_token="",
+        page_id="",
+        reply_api_base_url=payload.reply_api_base_url.strip(),
+        reply_api_key=payload.reply_api_key.strip(),
+        reply_model=payload.reply_model.strip(),
+        video_api_base_url=payload.video_api_base_url.strip(),
+        video_api_key=payload.video_api_key.strip(),
+        video_model=payload.video_model.strip(),
+        prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
+    )
+    ai_service = AIReplyService(temp_config)
+    try:
+        result = await ai_service.test_video_connection()
         return {"status": "success", "message": result}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -481,10 +514,12 @@ async def activate_prompt_api(payload: ActivatePromptPayload):
     model = get_model_config() or {}
     
     upsert_model_config(
-        ai_api_base_url=str(model.get("ai_api_base_url", "")),
-        ai_api_key=str(model.get("ai_api_key", "")),
-        ai_model=str(model.get("ai_model", "")),
-        video_ai_model=str(model.get("video_ai_model", "")),
+        reply_api_base_url=str(model.get("reply_api_base_url", "")),
+        reply_api_key=str(model.get("reply_api_key", "")),
+        reply_model=str(model.get("reply_model", "")),
+        video_api_base_url=str(model.get("video_api_base_url", "")),
+        video_api_key=str(model.get("video_api_key", "")),
+        video_model=str(model.get("video_model", "")),
         prompt_template=payload.filename.strip()
     )
     return {"status": "success"}
@@ -789,7 +824,7 @@ async def _do_analyze(post_id: str, force: bool, task_key: str):
         raise HTTPException(status_code=500, detail="未配置 page_access_token")
 
     model_config = get_model_config()
-    if not model_config or not model_config.get("ai_api_key"):
+    if not model_config or not (model_config.get("video_api_key") or model_config.get("reply_api_key")):
         raise HTTPException(status_code=500, detail="未配置 AI 模型")
 
     # Step 1: Get video source URL from Facebook
