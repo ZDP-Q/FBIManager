@@ -322,8 +322,36 @@ def replace_comments_for_post(post_id: str, comments: list[dict[str, Any]]) -> N
                 _insert_comment(connection, post_id, None, comment)
 
 
+def _extract_comment_message(comment: dict[str, Any]) -> str:
+    """Extract display text from a comment, handling stickers and attachments."""
+    msg = (comment.get("message") or "").strip()
+    if msg:
+        return msg
+
+    # Sticker / story tag (e.g. "Elio sent a sticker")
+    story = (comment.get("story") or "").strip()
+    if story:
+        return f"[{story}]"
+
+    # Media attachment
+    attachment = comment.get("attachment", {})
+    if attachment:
+        att_type = (attachment.get("type") or "").lower()
+        media = attachment.get("media", {})
+        title = (media.get("title") or "").strip() if media else ""
+        if title:
+            return f"[{att_type}: {title}]"
+        desc = (attachment.get("description") or "").strip()
+        if desc:
+            return f"[{att_type}: {desc}]"
+        return f"[{att_type}]"
+
+    return ""
+
+
 def _insert_comment(connection, post_id: str, parent_comment_id: str | None, comment: dict[str, Any]) -> None:
     author = comment.get("from", {})
+    message = _extract_comment_message(comment)
     
     # Try to extract parent_id from data if not explicitly provided
     if parent_comment_id is None:
@@ -346,7 +374,7 @@ def _insert_comment(connection, post_id: str, parent_comment_id: str | None, com
             comment["id"],
             post_id,
             parent_comment_id,
-            comment.get("message", ""),
+            message,
             author.get("name", "匿名用户"),
             author.get("id", ""),
             comment.get("created_time", ""),
@@ -787,6 +815,7 @@ def list_replied_for_post(post_id: str, limit: int = 20) -> list[dict[str, Any]]
 def upsert_comment(post_id: str, parent_comment_id: str | None, comment: dict[str, Any]) -> None:
     """Insert or update a single comment (used by monitor service for incremental updates)."""
     author = comment.get("from", {})
+    message = _extract_comment_message(comment)
     with get_connection() as connection:
         with connection:
             connection.execute(
@@ -804,7 +833,7 @@ def upsert_comment(post_id: str, parent_comment_id: str | None, comment: dict[st
                     comment["id"],
                     post_id,
                     parent_comment_id,
-                    comment.get("message", ""),
+                    message,
                     author.get("name", "匿名用户"),
                     author.get("id", ""),
                     comment.get("created_time", ""),

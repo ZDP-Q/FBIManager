@@ -216,7 +216,7 @@ class FacebookService:
         Pass 'since' (unix timestamp) to only get comments created after that time.
         """
         params: dict[str, Any] = {
-            "fields": "id,message,from,created_time,parent{id}",
+            "fields": "id,message,from,created_time,parent{id},attachment,story",
             "limit": limit,
             "order": "reverse_chronological",
         }
@@ -241,7 +241,7 @@ class FacebookService:
 
     async def fetch_replies_for_comment(self, comment_id: str, limit: int = 100, since: int | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {
-            "fields": "id,message,from,created_time,parent{id}",
+            "fields": "id,message,from,created_time,parent{id},attachment,story",
             "limit": limit,
         }
         if since:
