@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import httpx
@@ -276,6 +277,89 @@ class AIReplyService:
                 return "REPLY" in content
         except Exception:
             return True  # fail-open
+
+    async def score_comments(
+        self,
+        *,
+        post_message: str,
+        video_analysis: str = "",
+        comments: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Batch score comments for target user potential (0-100).
+
+        Returns list of {id, score}, sorted by score descending.
+        Fails open: returns all comments with score=50 on any error.
+        """
+        if not self.config.ai_enabled or not comments:
+            return [{"id": c["id"], "score": 50} for c in comments]
+
+        comment_lines = []
+        for c in comments:
+            comment_lines.append(
+                f"[id: {c['id']}] {c.get('author_name', '匿名用户')}: {c.get('message', '')}"
+            )
+        comment_text = "\n".join(comment_lines)
+
+        prompt = (
+            "你是一个评论价值评估助手。以下是帖子内容和所有待评估的评论。\n"
+            "请对每条评论进行评分（0-100），判断该用户是否可能点击私聊链接、产生深度互动。\n\n"
+            f"帖子内容: {post_message or '无'}\n"
+            + (f"视频分析: {video_analysis}\n" if video_analysis else "") +
+            "\n"
+            "评分标准（0-100）:\n"
+            "- 90-100: 强烈互动意愿、主动调情、表达情感、询问私人问题、明显想进一步交流\n"
+            "- 70-89: 有对话潜力、表达兴趣或好奇、积极互动\n"
+            "- 50-69: 普通评论、简短互动、社交礼貌\n"
+            "- 30-49: 简单表情、单字回复、低信息量\n"
+            "- 0-29: 垃圾广告、完全无关内容\n\n"
+            f"待评估评论:\n{comment_text}\n\n"
+            "请以 JSON 数组格式返回每条评论的评分:\n"
+            '[{"id": "评论id", "score": 85}, ...]\n'
+            "只输出 JSON 数组，不要包含其他内容。"
+        )
+
+        payload = {
+            "model": self.config.ai_model,
+            "temperature": 0.1,
+            "max_tokens": 500,
+            "stream": False,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.config.ai_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+                if response.status_code >= 400:
+                    return [{"id": c["id"], "score": 50} for c in comments]
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+            # Parse JSON array from response
+            scored = json.loads(content)
+            if not isinstance(scored, list):
+                return [{"id": c["id"], "score": 50} for c in comments]
+
+            # Build lookup and preserve order
+            result = []
+            for item in scored:
+                if isinstance(item, dict) and "id" in item and "score" in item:
+                    result.append({"id": str(item["id"]), "score": int(item["score"])})
+
+            # Fill in any missing comments with score=50
+            scored_ids = {r["id"] for r in result}
+            for c in comments:
+                if c["id"] not in scored_ids:
+                    result.append({"id": c["id"], "score": 50})
+
+            result.sort(key=lambda x: x["score"], reverse=True)
+            return result
+        except Exception:
+            return [{"id": c["id"], "score": 50} for c in comments]
 
     async def analyze_video(self, video_base64: str) -> str:
         """Analyze a video using LLM with base64-encoded video data."""

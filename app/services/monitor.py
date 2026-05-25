@@ -10,14 +10,16 @@ from typing import Any
 
 from app.config import load_config
 from app.repositories import (
+    count_pending_comments,
+    get_latest_comment_time,
     get_monitor,
     get_page_profile,
     get_post,
-    get_screened_comment_ids,
     get_video_analysis,
     has_replied,
     list_comments_by_post_ids,
     list_monitors,
+    list_pending_comments,
     list_replied_for_post,
     mark_comments_screened,
     mark_replied,
@@ -243,12 +245,12 @@ class MonitorService:
             local_comments = local_comments_map.get(post_id, [])
             logger.info("[monitor] monitor=%s: 同步完成，本地现有 %d 条顶层评论", monitor_id, len(local_comments))
 
-        # Step 1: 增量拉取上次运行之后的新评论
+        # Step 1: 以本地最新评论的时间戳为基准，增量拉取新评论
+        latest_time = get_latest_comment_time(post_id)
         since_ts: int | None = None
-        last_run_at_raw = monitor.get("last_run_at")
-        if last_run_at_raw:
+        if latest_time:
             try:
-                dt = datetime.fromisoformat(str(last_run_at_raw))
+                dt = datetime.fromisoformat(latest_time)
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 since_ts = int(dt.timestamp())
@@ -256,21 +258,36 @@ class MonitorService:
                 pass
 
         if since_ts:
-            logger.info("[monitor] monitor=%s: 增量拉取新评论 since=%s", monitor_id, last_run_at_raw)
-            new_comments, cursors = await facebook.fetch_comments_for_post(
+            logger.info("[monitor] monitor=%s: 增量拉取 since=%s", monitor_id, latest_time)
+            new_comments, _ = await facebook.fetch_comments_for_post(
                 post_id, limit=200, max_depth=3, since=since_ts
             )
             if new_comments:
                 logger.info("[monitor] monitor=%s: 获取到 %d 条新评论", monitor_id, len(new_comments))
                 for comment in new_comments:
                     upsert_comment(post_id, None, comment)
-                # 重载本地评论以包含新增的
-                local_comments_map = list_comments_by_post_ids([post_id])
-                local_comments = local_comments_map.get(post_id, [])
         else:
-            logger.info("[monitor] monitor=%s: 首次监控运行，直接使用本地已同步评论", monitor_id)
+            logger.info("[monitor] monitor=%s: 无本地评论时间戳，跳过远程拉取（已通过同步获取）", monitor_id)
 
-        # Step 2: 将本地 DB 格式转换为 Facebook API 格式（供下游统一处理）
+        # Step 2: 检查待处理评论是否达到批量处理门槛
+        pending_count = count_pending_comments(post_id)
+        is_first_cycle = not monitor.get("last_run_at")
+        _BATCH_THRESHOLD = 50
+
+        if not is_first_cycle and pending_count < _BATCH_THRESHOLD:
+            logger.info("[monitor] monitor=%s: 待处理 %d < 门槛 %d，跳过本周期",
+                        monitor_id, pending_count, _BATCH_THRESHOLD)
+            update_monitor(
+                monitor_id,
+                last_run_at=datetime.now(timezone.utc).isoformat(),
+                last_run_status=f"待处理 {pending_count}/{_BATCH_THRESHOLD}，等待下一周期",
+            )
+            return {"replied": 0, "skipped": 0, "scored": 0, "total": pending_count, "already": 0}
+
+        # Step 3: 重载本地评论、归一化、展平
+        local_comments_map = list_comments_by_post_ids([post_id])
+        local_comments = local_comments_map.get(post_id, [])
+
         def _normalize(cs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             result: list[dict[str, Any]] = []
             for c in cs:
@@ -288,28 +305,7 @@ class MonitorService:
             return result
 
         comments = _normalize(local_comments)
-        logger.info("[monitor] monitor=%s: 本地共 %d 条评论待处理", monitor_id, len(comments))
 
-        # 获取主页资料，用于获取主页名称和确认数字 ID
-        logger.info("[monitor] monitor=%s: 正在获取主页资料...", monitor_id)
-        profile = get_page_profile(page_id=page_id) or {}
-        # 最终确认使用的数字 Page ID
-        canonical_page_id = str(profile.get("page_id") or page_id)
-
-        stats = {"replied": 0, "skipped": 0, "screened": 0, "total": 0, "already": 0}
-
-        # 立即更新运行状态，避免 UI 显示"从未执行"
-        update_monitor(
-            monitor_id,
-            last_run_at=datetime.now(timezone.utc).isoformat(),
-            last_run_status="运行中...",
-        )
-
-        # 获取该帖子的已回复历史，供 AI 避免重复内容
-        previous_replies = list_replied_for_post(post_id, limit=20)
-
-        # 展平所有评论为 flat list（保留 depth 和 parent_message）
-        logger.info("[monitor] monitor=%s: 正在展平评论...", monitor_id)
         flat_comments: list[dict[str, Any]] = []
         def _flatten(cs: list[dict[str, Any]], depth: int, parent_msg: str = ""):
             for c in cs:
@@ -319,97 +315,108 @@ class MonitorService:
                     _flatten(replies, depth + 1, c.get("message", ""))
         _flatten(comments, 1)
 
-        # 过滤掉主页自己的评论 + 已回复过的评论 + 已筛选过的评论
-        candidates = []
+        # id -> flat_item 映射，供回复阶段查找
+        flat_map: dict[str, dict[str, Any]] = {item["comment"]["id"]: item for item in flat_comments}
+
+        # 获取主页资料
+        profile = get_page_profile(page_id=page_id) or {}
+        canonical_page_id = str(profile.get("page_id") or page_id)
+
+        # Step 4: 获取待处理评论，过滤自己的 + 已回复的
+        pending = list_pending_comments(post_id)
+        scorable: list[dict[str, Any]] = []
         already_replied_count = 0
-        screened_ids = get_screened_comment_ids(post_id)
-        for item in flat_comments:
-            c = item["comment"]
-            author = c.get("from", {})
-            author_id = str(author.get("id") or "")
-            author_name = author.get("name", "")
-            if author_id and canonical_page_id and author_id == canonical_page_id:
-                continue
-            if author_name and profile.get("name") and author_name == profile.get("name"):
-                continue
-            # 跳过已在 replied_comments 表中的评论（节省 AI 筛选调用）
-            comment_id = c.get("id", "")
-            if comment_id and has_replied(comment_id):
+        for c in pending:
+            if c["id"] in flat_map:
+                flat_item = flat_map[c["id"]]
+                author = flat_item["comment"].get("from", {})
+                author_id = str(author.get("id") or "")
+                author_name = author.get("name", "")
+                if author_id and canonical_page_id and author_id == canonical_page_id:
+                    continue
+                if author_name and profile.get("name") and author_name == profile.get("name"):
+                    continue
+            if has_replied(c["id"]):
                 already_replied_count += 1
                 continue
-            # 跳过已筛选过的评论（历史 SKIP 或 REPLY 结果保持有效）
-            if comment_id and comment_id in screened_ids:
-                continue
-            candidates.append(item)
+            scorable.append(c)
 
-        stats["already"] = already_replied_count
-        stats["total"] = len(candidates) + already_replied_count
-        logger.info("[monitor] monitor=%s: %d 条候选评论（%d 条已处理），开始 AI 筛选...",
-                    monitor_id, len(candidates), already_replied_count)
+        stats = {"replied": 0, "skipped": 0, "scored": len(scorable), "total": len(pending), "already": already_replied_count}
 
-        # AI 批量筛选（并发，每条评论独立筛选）
-        async def _screen_one(item: dict[str, Any]) -> dict[str, Any] | None:
-            c = item["comment"]
-            msg = c.get("message", "")
-            author = c.get("from", {}).get("name", "匿名用户")
-            worth = await ai.screen_comment(comment_message=msg, comment_author=author)
-            return item if worth else None
+        if not scorable:
+            mark_comments_screened([c["id"] for c in pending])
+            status_msg = f"无有效待评分评论 | 总待处理 {stats['total']} | 已处理 {stats['already']}"
+            finished_at = datetime.now().astimezone()
+            update_monitor(
+                monitor_id,
+                last_run_at=finished_at.astimezone(timezone.utc).isoformat(),
+                last_run_status=status_msg,
+            )
+            logger.info("[%s] [monitor] monitor=%s done: %s",
+                        finished_at.strftime("%Y-%m-%d %H:%M:%S %z"), monitor_id, status_msg)
+            return stats
 
-        screen_results = await asyncio.gather(*[_screen_one(item) for item in candidates])
-        passed = [item for item in screen_results if item is not None]
-        screened_count = len(candidates) - len(passed)
-        stats["screened"] = screened_count
-
-        # 标记所有候选评论为已筛选，下一周期不再重复筛选
-        all_candidate_ids = [item["comment"]["id"] for item in candidates if item["comment"].get("id")]
-        mark_comments_screened(all_candidate_ids)
-
-        # 限制回复数量不超过总评论的 30%
-        max_replies = max(1, math.ceil(len(candidates) * 0.3))
-        original_passed = len(passed)
-        if len(passed) > max_replies:
-            passed = passed[:max_replies]
-
-        logger.info("[monitor] monitor=%s: AI 筛选完成，通过 %d 条，跳过 %d 条，最终回复 %d 条 (上限 %d)",
-                    monitor_id, original_passed, screened_count, len(passed), max_replies)
-
-        # 更新状态
+        # Step 5: 批量评分
+        logger.info("[monitor] monitor=%s: 正在批量评分 %d 条评论...", monitor_id, len(scorable))
         update_monitor(
             monitor_id,
             last_run_at=datetime.now(timezone.utc).isoformat(),
-            last_run_status=f"筛选完成，{len(passed)} 条待回复（已处理 {stats['already']} | 筛选 {stats['screened']}）...",
+            last_run_status=f"正在批量评分 {len(scorable)} 条评论...",
+        )
+        scored = await ai.score_comments(
+            post_message=post.get("message", ""),
+            video_analysis=video_analysis_ctx,
+            comments=scorable,
         )
 
-        # 随机打乱通过筛选的评论
-        random.shuffle(passed)
+        # Step 6: 按评分排序，取前 30%
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        top_n = max(1, math.ceil(len(scored) * 0.3))
+        to_reply = scored[:top_n]
+        logger.info("[monitor] monitor=%s: 评分完成，%d 条参与，前 30%% = %d 条，分数范围 %d-%d",
+                    monitor_id, len(scored), len(to_reply),
+                    to_reply[0]["score"], to_reply[-1]["score"])
 
-        # 第二轮：5 条并发回复，批次间随机延迟
+        # Step 7: 标记所有 pending 为已处理（包括被筛掉的）
+        mark_comments_screened([c["id"] for c in pending])
+
+        # Step 8: 并发回复前 30%
+        update_monitor(
+            monitor_id,
+            last_run_at=datetime.now(timezone.utc).isoformat(),
+            last_run_status=f"评分完成，正在回复前 {len(to_reply)} 条...",
+        )
+
+        previous_replies = list_replied_for_post(post_id, limit=20)
+        random.shuffle(to_reply)
+
         _BATCH_SIZE = 5
-        total_to_reply = len(passed)
-        replied_total = 0
-        for batch_start in range(0, total_to_reply, _BATCH_SIZE):
+        for batch_start in range(0, len(to_reply), _BATCH_SIZE):
             if batch_start > 0:
                 delay = random.uniform(10, 45)
                 await asyncio.sleep(delay)
 
-            batch = passed[batch_start:batch_start + _BATCH_SIZE]
-            batch_end = min(batch_start + _BATCH_SIZE, total_to_reply)
+            batch = to_reply[batch_start:batch_start + _BATCH_SIZE]
+            batch_end = min(batch_start + _BATCH_SIZE, len(to_reply))
             update_monitor(
                 monitor_id,
                 last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_run_status=f"回复中 {batch_start + 1}-{batch_end}/{total_to_reply}（总评论 {stats['total']} | 已处理 {stats['already']} | 新回复 {stats['replied']} | 跳过 {stats['skipped']}）",
+                last_run_status=f"回复中 {batch_start + 1}-{batch_end}/{len(to_reply)}（总 {stats['total']} | 评分 {stats['scored']} | 已回 {stats['replied']}）",
             )
 
-            async def _reply_one(item: dict[str, Any]) -> tuple[int, int, int]:
+            async def _reply_one(scored_item: dict[str, Any]) -> tuple[int, int, int]:
+                flat_item = flat_map.get(scored_item["id"])
+                if flat_item is None:
+                    return 0, 0, 0
                 return await self._process_comment(
-                    item["comment"],
+                    flat_item["comment"],
                     post,
                     profile,
                     monitor_id,
                     facebook=facebook,
                     ai=ai,
-                    depth=item["depth"],
-                    parent_message=item["parent_message"],
+                    depth=flat_item["depth"],
+                    parent_message=flat_item["parent_message"],
                     canonical_page_id=canonical_page_id,
                     previous_replies=previous_replies,
                     video_analysis=video_analysis_ctx,
@@ -421,7 +428,7 @@ class MonitorService:
                 stats["skipped"] += skipped
                 stats["already"] += already
 
-        status_msg = f"总评论 {stats['total']} | 筛选掉 {stats['screened']} | 待回复 {len(passed)} | 已处理 {stats['already']} | 新回复 {stats['replied']} | 跳过 {stats['skipped']}"
+        status_msg = f"总待处理 {stats['total']} | 评分 {stats['scored']} | 回复前{top_n} | 新回复 {stats['replied']} | 跳过 {stats['skipped']} | 已处理 {stats['already']}"
         finished_at = datetime.now().astimezone()
         update_monitor(
             monitor_id,

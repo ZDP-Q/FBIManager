@@ -477,6 +477,36 @@ def mark_comments_screened(comment_ids: list[str]) -> None:
             )
 
 
+def get_latest_comment_time(post_id: str) -> str | None:
+    """Return the created_time of the most recent comment for a post."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT created_time FROM comments WHERE post_id = ? ORDER BY created_time DESC LIMIT 1",
+            (post_id,),
+        ).fetchone()
+    return row["created_time"] if row else None
+
+
+def count_pending_comments(post_id: str) -> int:
+    """Count comments that have not been screened yet (pending)."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM comments WHERE post_id = ? AND screened = 0",
+            (post_id,),
+        ).fetchone()
+    return row[0] if row else 0
+
+
+def list_pending_comments(post_id: str) -> list[dict[str, Any]]:
+    """Return flat list of pending comments with id, author_name, message."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, author_name, message FROM comments WHERE post_id = ? AND screened = 0 ORDER BY created_time ASC",
+            (post_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Post monitors
 # ---------------------------------------------------------------------------
