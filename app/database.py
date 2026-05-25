@@ -193,6 +193,18 @@ CREATE TABLE IF NOT EXISTS video_analyses (
 );
 
 CREATE INDEX IF NOT EXISTS idx_video_analyses_post_id ON video_analyses(post_id);
+
+CREATE TABLE IF NOT EXISTS comment_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comment_id TEXT NOT NULL,
+    media_type TEXT NOT NULL DEFAULT '',
+    media_url TEXT NOT NULL,
+    local_path TEXT NOT NULL DEFAULT '',
+    synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_comment ON comment_attachments(comment_id);
 """
 
 

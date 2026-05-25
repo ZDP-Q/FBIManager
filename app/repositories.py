@@ -553,6 +553,79 @@ def list_pending_comments(post_id: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Comment attachments
+# ---------------------------------------------------------------------------
+
+def insert_comment_attachment(comment_id: str, media_type: str, media_url: str, local_path: str) -> None:
+    with get_connection() as connection:
+        with connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO comment_attachments (comment_id, media_type, media_url, local_path) VALUES (?, ?, ?, ?)",
+                (comment_id, media_type, media_url, local_path),
+            )
+
+
+def get_comment_attachments(comment_id: str) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, comment_id, media_type, media_url, local_path FROM comment_attachments WHERE comment_id = ?",
+            (comment_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def has_attachment(comment_id: str) -> bool:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT 1 FROM comment_attachments WHERE comment_id = ? LIMIT 1",
+            (comment_id,),
+        ).fetchone()
+    return row is not None
+
+
+async def download_comment_attachments(
+    comment: dict[str, Any],
+    facebook: Any,  # FacebookService
+    data_dir: str,
+) -> int:
+    """Download and store attachments for a comment. Returns count of saved attachments.
+    Skips if already stored.
+    """
+    import os
+
+    comment_id = str(comment.get("id", ""))
+    if not comment_id:
+        return 0
+
+    info = facebook.extract_attachment_info(comment)
+    if not info:
+        return 0
+
+    media_type, url = info
+    if not url:
+        return 0
+
+    if has_attachment(comment_id):
+        return 0
+
+    # Determine file extension
+    ext = ".jpg"
+    if media_type in ("animated_image_share", "gif"):
+        ext = ".gif"
+    elif media_type == "video_inline":
+        ext = ".mp4"
+
+    attachments_dir = os.path.join(data_dir, "attachments")
+    os.makedirs(attachments_dir, exist_ok=True)
+    local_path = os.path.join(attachments_dir, f"{comment_id}{ext}")
+
+    if await facebook.download_attachment(url, local_path):
+        insert_comment_attachment(comment_id, media_type, url, local_path)
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Post monitors
 # ---------------------------------------------------------------------------
 

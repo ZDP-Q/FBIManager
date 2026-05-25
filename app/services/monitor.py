@@ -8,7 +8,7 @@ import random
 from datetime import datetime, timezone
 from typing import Any
 
-from app.config import load_config
+from app.config import load_config, PROJECT_ROOT
 from app.repositories import (
     count_pending_comments,
     get_latest_comment_time,
@@ -143,8 +143,7 @@ class MonitorService:
             try:
                 page_id = account["page_id"]
                 from app.services.sync import SyncService
-                from app.config import load_config
-                
+
                 cfg = load_config(account_id=account["id"])
                 sync_svc = SyncService(cfg)
                 
@@ -266,6 +265,20 @@ class MonitorService:
                 logger.info("[monitor] monitor=%s: 获取到 %d 条新评论", monitor_id, len(new_comments))
                 for comment in new_comments:
                     upsert_comment(post_id, None, comment)
+
+                # 下载新评论中的附件
+                from app.repositories import download_comment_attachments
+                data_dir = str(PROJECT_ROOT / "data")
+                attached = 0
+                async def _dl_attachments(cs):
+                    nonlocal attached
+                    for c in cs:
+                        attached += await download_comment_attachments(c, facebook, data_dir)
+                        for reply in c.get("replies", {}).get("data", []):
+                            await _dl_attachments([reply])
+                await _dl_attachments(new_comments)
+                if attached:
+                    logger.info("[monitor] monitor=%s: 下载了 %d 个附件", monitor_id, attached)
         else:
             logger.info("[monitor] monitor=%s: 无本地评论时间戳，跳过远程拉取（已通过同步获取）", monitor_id)
 

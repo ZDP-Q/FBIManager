@@ -289,6 +289,54 @@ class FacebookService:
         result = await self._request("DELETE", comment_id)
         return bool(result)
 
+    def extract_attachment_info(self, comment: dict[str, Any]) -> tuple[str, str] | None:
+        """Extract (media_type, url) from a comment's attachment/story, or None."""
+        attachment = comment.get("attachment")
+        if not attachment:
+            # Sticker-only comments have story but no attachment
+            story = (comment.get("story") or "").strip()
+            if story:
+                return ("sticker", "")
+            return None
+
+        media_type = (attachment.get("type") or "").lower()
+        media = attachment.get("media", {})
+
+        # Try to get image URL (works for stickers, photos, etc.)
+        img = media.get("image", {})
+        url = (img.get("src") or "").strip()
+        if url:
+            return (media_type, url)
+
+        # Animated image / GIF
+        anim = media.get("animated_image", {})
+        url = (anim.get("src") or "").strip()
+        if url:
+            return (media_type, url)
+
+        # Video
+        video = media.get("source", {})
+        url = (video.get("src") or "").strip()
+        if url:
+            return (media_type, url)
+
+        return (media_type, "") if media_type else None
+
+    async def download_attachment(self, url: str, dest_path: str) -> bool:
+        """Download attachment media to local file. Returns True on success."""
+        if not url:
+            return False
+        try:
+            client = self._get_client()
+            response = await client.get(url, timeout=60.0)
+            if response.status_code >= 400:
+                return False
+            with open(dest_path, "wb") as f:
+                f.write(response.content)
+            return True
+        except Exception:
+            return False
+
     async def fetch_conversations(self, limit: int = 50, after: str = "", since: str = "", page_id: str | None = None, folder: str = "inbox") -> dict[str, Any]:
         """Fetch list of conversations for a page, specifying folder."""
         target = page_id or "me"

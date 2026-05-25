@@ -18,7 +18,7 @@ class SyncService:
         self.facebook = FacebookService(config)
         self.config = config
 
-    async def sync_all(self, *, post_limit: int = 20, since: str = "", until: str = "", all_posts: bool = False) -> dict[str, Any]:
+    async def sync_all(self, *, post_limit: int = 6, since: str = "", until: str = "", all_posts: bool = False) -> dict[str, Any]:
         """Wrapper around sync_all_gen for backward compatibility."""
         final_result = {}
         async for step in self.sync_all_gen(post_limit=post_limit, since=since, until=until, all_posts=all_posts):
@@ -26,7 +26,7 @@ class SyncService:
                 final_result = step.get("result", {})
         return final_result
 
-    async def sync_all_gen(self, *, post_limit: int = 20, since: str = "", until: str = "", all_posts: bool = False, sync_comments: bool = True):
+    async def sync_all_gen(self, *, post_limit: int = 6, since: str = "", until: str = "", all_posts: bool = False, sync_comments: bool = True):
         """Progress generator for SSE. It starts the background worker if not already running."""
         from app.registry import get_task_status
         current = get_task_status("post_sync")
@@ -246,7 +246,26 @@ class SyncService:
 
             replace_comments_for_post(post_id, all_comments)
             count = sum(self._count_comment_tree(c) for c in all_comments)
-            logger.info("[sync] comments synced for post=%s pages=%s total=%s", post_id, page, count)
+
+            # Download attachments
+            from app.repositories import download_comment_attachments
+            from app.config import PROJECT_ROOT
+            data_dir = str(PROJECT_ROOT / "data")
+
+            async def _walk_attachments(cs: list[dict[str, Any]]) -> int:
+                count = 0
+                for c in cs:
+                    count += await download_comment_attachments(
+                        c, self.facebook, data_dir
+                    )
+                    for reply in c.get("replies", {}).get("data", []):
+                        count += await _walk_attachments([reply])
+                return count
+
+            attached = await _walk_attachments(all_comments)
+
+            logger.info("[sync] comments synced for post=%s pages=%s total=%s attachments=%s",
+                        post_id, page, count, attached)
             return count
         except Exception as exc:
             logger.error("[sync] failed to sync comments for post=%s: %s", post_id, exc)
