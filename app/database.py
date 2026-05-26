@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS comment_attachments (
     comment_id TEXT NOT NULL,
     media_type TEXT NOT NULL DEFAULT '',
     media_url TEXT NOT NULL,
-    local_path TEXT NOT NULL DEFAULT '',
+    data BLOB,
     synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
 );
@@ -301,6 +301,11 @@ def init_db() -> None:
 
         try:
             connection.execute("ALTER TABLE comments ADD COLUMN screened INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE comment_attachments ADD COLUMN data BLOB")
         except Exception:
             pass
 

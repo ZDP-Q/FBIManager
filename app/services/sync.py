@@ -249,15 +249,11 @@ class SyncService:
 
             # Download attachments
             from app.repositories import download_comment_attachments
-            from app.config import PROJECT_ROOT
-            data_dir = str(PROJECT_ROOT / "data")
 
             async def _walk_attachments(cs: list[dict[str, Any]]) -> int:
                 count = 0
                 for c in cs:
-                    count += await download_comment_attachments(
-                        c, self.facebook, data_dir
-                    )
+                    count += await download_comment_attachments(c, self.facebook)
                     for reply in c.get("replies", {}).get("data", []):
                         count += await _walk_attachments([reply])
                 return count

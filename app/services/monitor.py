@@ -8,7 +8,7 @@ import random
 from datetime import datetime, timezone
 from typing import Any
 
-from app.config import load_config, PROJECT_ROOT
+from app.config import load_config
 from app.repositories import (
     count_pending_comments,
     get_latest_comment_time,
@@ -268,12 +268,11 @@ class MonitorService:
 
                 # 下载新评论中的附件
                 from app.repositories import download_comment_attachments
-                data_dir = str(PROJECT_ROOT / "data")
                 attached = 0
                 async def _dl_attachments(cs):
                     nonlocal attached
                     for c in cs:
-                        attached += await download_comment_attachments(c, facebook, data_dir)
+                        attached += await download_comment_attachments(c, facebook)
                         for reply in c.get("replies", {}).get("data", []):
                             await _dl_attachments([reply])
                 await _dl_attachments(new_comments)

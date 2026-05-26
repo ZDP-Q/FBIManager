@@ -322,20 +322,18 @@ class FacebookService:
 
         return (media_type, "") if media_type else None
 
-    async def download_attachment(self, url: str, dest_path: str) -> bool:
-        """Download attachment media to local file. Returns True on success."""
+    async def download_attachment_bytes(self, url: str) -> bytes | None:
+        """Download attachment media, return raw bytes or None on failure."""
         if not url:
-            return False
+            return None
         try:
             client = self._get_client()
             response = await client.get(url, timeout=60.0)
             if response.status_code >= 400:
-                return False
-            with open(dest_path, "wb") as f:
-                f.write(response.content)
-            return True
+                return None
+            return response.content
         except Exception:
-            return False
+            return None
 
     async def fetch_conversations(self, limit: int = 50, after: str = "", since: str = "", page_id: str | None = None, folder: str = "inbox") -> dict[str, Any]:
         """Fetch list of conversations for a page, specifying folder."""
