@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 from typing import Any
 
 import httpx
@@ -17,21 +19,22 @@ _DEFAULT_TEMPLATE = (
     "评论用户: {{ author_name or '匿名用户' }}\n"
     "评论内容: {{ comment_message or '（空）' }}\n"
     "{% if parent_comment_message %}被回复的原评论: {{ parent_comment_message }}\n{% endif %}"
+    "# Location & Context grounding\n"
+    "你只能引用帖子内容或视频分析中出现的地点。没有位置信息时不要编造具体地点。\n\n"
     "你的人设如下：\n"
-    "- 35 岁男性，白手起家的投资人，曾创立并出售科技公司，已实现财务自由。\n"
+    "Your name is Elio Silvestri. 你是 35 岁男性，白手起家的投资人，已实现财务自由。\n"
     "- 气质自信、沉稳、有掌控力；生活重心是投资、旅行、健身与高质量生活。\n"
-    "- 爱好包括健身训练、探索旅行、户外活动、偶尔下厨、发掘美食餐厅。\n"
-    "- 给人感觉冷静、可靠、有吸引力，能让人安心。\n\n"
+    "- 说话像真实男性，不要像 AI 助手，不要说教。\n\n"
     "性格与互动风格：\n"
     "- 成熟、稳定、略带主导感；自信但不张扬。\n"
     "- 保护欲、观察力强，偶尔带一点俏皮和轻微调侃。\n"
-    "- 关心对方时温暖但不黏人，不刻意讨好。\n"
-    "- 说话像真实男性，不要像 AI 助手，不要说教。\n\n"
+    "- 关心对方时温暖但不黏人，不刻意讨好。\n\n"
     "表达要求：\n"
     "- 回复自然、口语化、直接，避免生硬或官腔。\n"
     "- 大多数回复控制在 1-3 句，简洁但有温度。\n"
     "- 不要输出解释、分析、步骤、标题，不要加引号，不要前缀。\n"
-    "- 可以轻微调情和玩笑，但保持分寸、自然推进，不要突兀。\n\n"
+    "- 可以轻微调情和玩笑，但保持分寸、自然推进，不要突兀。\n"
+    "- 对话深入时自然引导至私聊链接 https://cozsweet.com\n\n"
     "语言适配规则（必须遵守）：\n"
     "- 回复语言必须与\"评论内容\"的主要语言保持一致。\n"
     "- 如果\"评论内容\"很短或语言不明确，则参考\"被回复的原评论\"的主要语言。\n"
@@ -288,52 +291,6 @@ class AIReplyService:
                 raise RuntimeError(f"网络请求失败: {exc}") from exc
 
     # ------------------------------------------------------------------
-    # Comment screening (legacy, kept for potential direct use)
-    # ------------------------------------------------------------------
-
-    async def screen_comment(
-        self,
-        *,
-        comment_message: str,
-        comment_author: str,
-    ) -> bool:
-        """Lightweight LLM call to decide if a comment is worth replying to.
-        Returns True if the comment has conversion potential, False to skip.
-        Fails open (returns True on any error).
-        """
-        if not self.config.reply_enabled:
-            return True
-
-        prompt = (
-            "你是一个评论筛选助手。判断以下Facebook评论是否有较高的互动转化潜力（用户可能点击私聊链接）。\n\n"
-            "回复规则：\n"
-            "- 以下情况回复 SKIP：纯表情、垃圾广告、完全无关内容、只有一个字（如\"好\"\"ok\"\"nice\"）\n"
-            "- 以下情况回复 REPLY：有情感表达、提出问题、表达兴趣、调情/互动、任何有对话潜力的评论\n\n"
-            "只回复一个词：REPLY 或 SKIP\n\n"
-            f"用户 {comment_author} 说：{comment_message}"
-        )
-
-        payload = {
-            "model": self._reply_model,
-            "temperature": 0.1,
-            "max_tokens": 10,
-            "stream": False,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        headers = {"Authorization": f"Bearer {self._reply_key}", "Content-Type": "application/json"}
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(self._reply_url, headers=headers, json=payload)
-                if response.status_code >= 400:
-                    return True
-                data = response.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
-                return "REPLY" in content
-        except Exception:
-            return True
-
-    # ------------------------------------------------------------------
     # Batch comment scoring
     # ------------------------------------------------------------------
 
@@ -353,8 +310,11 @@ class AIReplyService:
 
         comment_lines = []
         for c in comments:
+            msg = (c.get("message", "") or "").strip()
+            # Truncate and sanitize to prevent prompt injection and JSON breakage
+            msg = msg[:200].replace('"', "'").replace("\n", " ")
             comment_lines.append(
-                f"[id: {c['id']}] {c.get('author_name', '匿名用户')}: {c.get('message', '')}"
+                f"[id: {c['id']}] {c.get('author_name', '匿名用户')}: {msg}"
             )
         comment_text = "\n".join(comment_lines)
 
@@ -379,7 +339,7 @@ class AIReplyService:
         payload = {
             "model": self._reply_model,
             "temperature": 0.1,
-            "max_tokens": 500,
+            "max_tokens": min(2000, max(500, len(comments) * 40)),
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
         }
@@ -392,6 +352,10 @@ class AIReplyService:
                     return [{"id": c["id"], "score": 50} for c in comments]
                 data = response.json()
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+            # Strip markdown code fences if present
+            content = re.sub(r'^```(?:json)?\s*\n?', '', content)
+            content = re.sub(r'\n?```\s*$', '', content)
 
             scored = json.loads(content)
             if not isinstance(scored, list):
@@ -409,7 +373,11 @@ class AIReplyService:
 
             result.sort(key=lambda x: x["score"], reverse=True)
             return result
-        except Exception:
+        except Exception as exc:
+            logging.getLogger("uvicorn.error").warning(
+                "[ai] score_comments failed: %s, falling back to score=50 for %d comments",
+                exc, len(comments)
+            )
             return [{"id": c["id"], "score": 50} for c in comments]
 
     # ------------------------------------------------------------------
@@ -511,13 +479,12 @@ class AIReplyService:
             raise RuntimeError("AI 接口返回了空内容")
 
         # Validate JSON structure
-        import json as _json
         try:
-            parsed = _json.loads(content)
+            parsed = json.loads(content)
             for field in ("location", "behavior", "environment"):
                 if field not in parsed or not str(parsed[field]).strip():
                     raise RuntimeError(f"AI 返回的 JSON 缺少必要字段: {field}")
-        except _json.JSONDecodeError as e:
+        except json.JSONDecodeError as e:
             raise RuntimeError(f"AI 返回的内容不是有效 JSON: {e}")
 
         return content

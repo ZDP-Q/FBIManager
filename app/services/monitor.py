@@ -286,6 +286,41 @@ class MonitorService:
         is_first_cycle = not monitor.get("last_run_at")
         _BATCH_THRESHOLD = 50
 
+        # 首次周期：全量拉取 + 删除检测
+        if is_first_cycle:
+            logger.info("[monitor] monitor=%s: 首次运行，执行全量拉取及删除检测", monitor_id)
+            full_comments, _ = await facebook.fetch_comments_for_post(
+                post_id, limit=200, max_depth=3
+            )
+            if full_comments:
+                remote_ids: set[str] = set()
+                def _collect_remote(cs):
+                    for c in cs:
+                        remote_ids.add(str(c.get("id", "")))
+                        for r in c.get("replies", {}).get("data", []):
+                            _collect_remote([r])
+                _collect_remote(full_comments)
+
+                local_map = list_comments_by_post_ids([post_id])
+                local_tree = local_map.get(post_id, [])
+                def _collect_local(cs, target):
+                    for c in cs:
+                        target.add(str(c.get("id", "")))
+                        for r in c.get("replies", []):
+                            _collect_local([r], target)
+                local_ids: set[str] = set()
+                _collect_local(local_tree, local_ids)
+
+                from app.repositories import delete_comment_local
+                for lid in local_ids:
+                    if lid not in remote_ids:
+                        logger.info("[monitor] 发现已删除评论，清理本地记录: %s", lid)
+                        delete_comment_local(lid)
+
+                # Upsert full comments
+                for comment in full_comments:
+                    upsert_comment(post_id, None, comment)
+
         if not is_first_cycle and pending_count < _BATCH_THRESHOLD:
             logger.info("[monitor] monitor=%s: 待处理 %d < 门槛 %d，跳过本周期",
                         monitor_id, pending_count, _BATCH_THRESHOLD)
@@ -339,15 +374,12 @@ class MonitorService:
         scorable: list[dict[str, Any]] = []
         already_replied_count = 0
         for c in pending:
-            if c["id"] in flat_map:
-                flat_item = flat_map[c["id"]]
-                author = flat_item["comment"].get("from", {})
-                author_id = str(author.get("id") or "")
-                author_name = author.get("name", "")
-                if author_id and canonical_page_id and author_id == canonical_page_id:
-                    continue
-                if author_name and profile.get("name") and author_name == profile.get("name"):
-                    continue
+            author_id = str(c.get("author_id", ""))
+            author_name = c.get("author_name", "")
+            if author_id and canonical_page_id and author_id == canonical_page_id:
+                continue
+            if author_name and profile.get("name") and author_name == profile.get("name"):
+                continue
             if has_replied(c["id"]):
                 already_replied_count += 1
                 continue
@@ -391,10 +423,7 @@ class MonitorService:
                     monitor_id, len(scored), len(to_reply),
                     to_reply[0]["score"], to_reply[-1]["score"])
 
-        # Step 7: 标记所有 pending 为已处理（包括被筛掉的）
-        mark_comments_screened([c["id"] for c in pending])
-
-        # Step 8: 并发回复前 30%
+        # Step 7: 并发回复前 30%（评分低的自然被筛掉，不标记为已处理）
         update_monitor(
             monitor_id,
             last_run_at=datetime.now(timezone.utc).isoformat(),
@@ -403,6 +432,7 @@ class MonitorService:
 
         previous_replies = list_replied_for_post(post_id, limit=20)
         random.shuffle(to_reply)
+        processed_ids: set[str] = set()
 
         _BATCH_SIZE = 5
         for batch_start in range(0, len(to_reply), _BATCH_SIZE):
@@ -437,10 +467,24 @@ class MonitorService:
                 )
 
             results = await asyncio.gather(*[_reply_one(item) for item in batch])
-            for replied, skipped, already in results:
+            for item, (replied, skipped, already) in zip(batch, results):
                 stats["replied"] += replied
                 stats["skipped"] += skipped
                 stats["already"] += already
+                if replied or skipped or already:
+                    processed_ids.add(item["id"])
+
+            # 刷新已回复历史，避免下一批次重复话术
+            if batch_start + _BATCH_SIZE < len(to_reply):
+                previous_replies = list_replied_for_post(post_id, limit=20)
+
+        # 标记所有 pending 为已处理，但未回复成功的保留为 pending
+        all_pending_ids = {c["id"] for c in pending}
+        unprocessed = all_pending_ids - processed_ids
+        if unprocessed:
+            logger.info("[monitor] monitor=%s: %d 条未处理（低评分），保留为 pending 等待下一周期",
+                        monitor_id, len(unprocessed))
+        mark_comments_screened(list(processed_ids))
 
         status_msg = f"总待处理 {stats['total']} | 评分 {stats['scored']} | 回复前{top_n} | 新回复 {stats['replied']} | 跳过 {stats['skipped']} | 已处理 {stats['already']}"
         finished_at = datetime.now().astimezone()

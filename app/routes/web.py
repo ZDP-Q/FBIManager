@@ -70,7 +70,6 @@ async def home(request: Request):
 
 @router.get("/comments", response_class=HTMLResponse)
 async def content_page(request: Request, limit: int = 50):
-    import json
     config = load_config()
     page_id = get_canonical_page_id(config.page_id)
     # 增加限制，避免一次性加载过多历史数据导致页面卡顿

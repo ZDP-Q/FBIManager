@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+import logging
 from typing import Any
 
 from app.database import get_connection
@@ -543,10 +544,10 @@ def count_pending_comments(post_id: str) -> int:
 
 
 def list_pending_comments(post_id: str) -> list[dict[str, Any]]:
-    """Return flat list of pending comments with id, author_name, message."""
+    """Return flat list of pending comments with id, author_name, author_id, message."""
     with get_connection() as connection:
         rows = connection.execute(
-            "SELECT id, author_name, message FROM comments WHERE post_id = ? AND screened = 0 ORDER BY created_time ASC",
+            "SELECT id, author_name, author_id, message FROM comments WHERE post_id = ? AND screened = 0 ORDER BY created_time ASC",
             (post_id,),
         ).fetchall()
     return [dict(row) for row in rows]
@@ -636,7 +637,10 @@ def _compress_attachment(data: bytes, media_type: str) -> bytes:
         compressed = out.getvalue()
         # Only use compressed version if it's actually smaller
         return compressed if len(compressed) < len(data) else data
-    except Exception:
+    except Exception as exc:
+        logging.getLogger("uvicorn.error").warning(
+            "[attachments] compress failed for %s: %s", media_type, exc
+        )
         return data
 
 
