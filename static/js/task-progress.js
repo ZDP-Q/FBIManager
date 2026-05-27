@@ -1,21 +1,19 @@
-/**
- * TaskProgress — unified task progress tracking component.
- *
- * Usage:
- *   const tp = new TaskProgress({
- *     taskId: 'post_sync',
- *     container: '#sync-progress-container',
- *     bar: '#sync-progress-bar',
- *     status: '#progress-status',
- *     percent: '#progress-percent',
- *     onComplete: (data) => { location.reload(); },
- *     onError: (msg) => { showAlert(msg, 'error'); },
- *     onProgress: (data) => { /* extra UI updates */ },
- *   });
- *   tp.startSSE('/api/sync/stream?limit=20');
- *   // or: tp.startPolling(2000);
- *   // On page load: tp.restore() — checks if task is already running
- */
+// TaskProgress — unified task progress tracking component.
+//
+// Usage:
+//   const tp = new TaskProgress({
+//     taskId: 'post_sync',
+//     container: '#sync-progress-container',
+//     bar: '#sync-progress-bar',
+//     status: '#progress-status',
+//     percent: '#progress-percent',
+//     onComplete: (data) => { location.reload(); },
+//     onError: (msg) => { showAlert(msg, 'error'); },
+//     onProgress: (data) => { /* extra UI updates */ },
+//   });
+//   tp.startSSE('/api/sync/stream?limit=20');
+//   // or: tp.startPolling(2000);
+//   // On page load: tp.restore() — checks if task is already running
 class TaskProgress {
     constructor({ taskId, container, bar, status, percent, detail, onComplete, onError, onProgress }) {
         this.taskId = taskId;
