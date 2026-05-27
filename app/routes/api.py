@@ -714,11 +714,8 @@ async def sync_chats_api(full: bool = False):
     sync_service = ChatSyncService(fb_service)
 
     async def event_generator():
-        try:
-            async for event in sync_service.sync_all_chats(page_id, full_sync=full):
-                yield event
-        finally:
-            await fb_service.close()
+        async for event in sync_service.sync_all_chats(page_id, full_sync=full):
+            yield event
 
     return StreamingResponse(
         event_generator(),

@@ -178,6 +178,8 @@ class ChatSyncService:
         except Exception as e:
             logger.error("[chat_sync] background worker failed: %s", e, exc_info=True)
             update_task("chat_sync", status=STATUS_FAILED, message=f"同步失败: {str(e)}", error=str(e))
+        finally:
+            await self.fb.close()
 
     async def _sync_messages_task(self, conv_id: str, full_sync: bool):
         async with self.semaphore:
