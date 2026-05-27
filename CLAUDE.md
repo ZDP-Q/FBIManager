@@ -15,6 +15,18 @@ uv sync
 # Run in development (port 38000)
 uv run python main.py
 
+# Run tests
+uv run pytest
+
+# Run a single test file
+uv run pytest tests/test_repositories.py
+
+# Run a single test
+uv run pytest tests/test_repositories.py::test_function_name
+
+# Run tests with coverage
+uv run pytest --cov=app --cov-report=term-missing
+
 # Reset admin password (must be 16+ chars)
 export ADMIN_PASSWORD="your-strong-password-here"
 uv run python reset_pwd.py
@@ -25,8 +37,6 @@ bash scripts/deploy.sh
 # View Docker logs
 docker compose -f docker/docker-compose.yml logs -f
 ```
-
-No formal test suite exists. Verification is manual via the UI (sync tasks, AI test config, webhook reachability).
 
 ## Architecture
 
@@ -50,6 +60,16 @@ No formal test suite exists. Verification is manual via the UI (sync tasks, AI t
 **Frontend:** Jinja2 HTML templates in `templates/`, vanilla JS in `static/js/`, single CSS file `static/css/style.css`. Each page has a matching JS file.
 
 **Config storage:** SQLite tables (`account_configs`, `model_configs`, `admin_auth`), not env vars. `ADMIN_PASSWORD` env var is only for `reset_pwd.py`.
+
+## Testing
+
+Tests use **pytest** with `pytest-asyncio`, `pytest-httpx`, and `pytest-cov`. Key conventions:
+
+- `asyncio_mode = "auto"` — all `async def test_*` functions run as async tests automatically
+- Each test gets an isolated temporary SQLite database via the autouse `patch_db_path` fixture
+- The `setup_db` fixture initializes schema + migrations + seeds admin auth
+- `client` fixture = unauthenticated TestClient; `auth_client` fixture = logged-in admin session
+- The app fixture disables the MonitorService background loop (no lifespan)
 
 ## Development Conventions
 

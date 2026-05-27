@@ -8,7 +8,7 @@ from app.config import AppConfig
 from app.repositories import replace_comments_for_post, upsert_page_profile, upsert_post, list_posts, get_canonical_page_id
 from app.services.facebook import FacebookService
 from app.services.attachments import download_comment_attachments
-from app.registry import update_task_status
+from app.task import create_task, update_task, get_task, is_task_running, STATUS_SUCCESS, STATUS_FAILED, STATUS_RUNNING
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -29,29 +29,31 @@ class SyncService:
 
     async def sync_all_gen(self, *, post_limit: int = 6, since: str = "", until: str = "", all_posts: bool = False, sync_comments: bool = True):
         """Progress generator for SSE. It starts the background worker if not already running."""
-        from app.registry import get_task_status
-        current = get_task_status("post_sync")
-
-        if not current or current.get("done"):
+        if not is_task_running("post_sync"):
+            create_task("post_sync", "帖子同步")
             asyncio.create_task(self._run_sync_worker(post_limit, since, until, all_posts, sync_comments))
             await asyncio.sleep(0.1)
 
-        last_update = 0
+        last_update = ""
         while True:
-            status = get_task_status("post_sync")
-            if not status: break
-            
-            if status.get("updated_at", 0) > last_update:
-                yield status
-                last_update = status.get("updated_at", 0)
-            
-            if status.get("done"): break
+            task = get_task("post_sync")
+            if not task:
+                break
+
+            updated = task.get("updated_at", "")
+            if updated > last_update:
+                yield {"msg": task.get("message", ""), "percent": task.get("progress", 0),
+                       "done": task["status"] in (STATUS_SUCCESS, STATUS_FAILED), "updated_at": updated}
+                last_update = updated
+
+            if task["status"] in (STATUS_SUCCESS, STATUS_FAILED):
+                break
             await asyncio.sleep(1)
 
     async def _run_sync_worker(self, post_limit: int, since: str, until: str, all_posts: bool, sync_comments: bool = True):
         if self.config.page_id == "default-page":
             logger.warning("[sync] Skipping sync for 'default-page'.")
-            update_task_status("post_sync", {"msg": "跳过默认页面", "done": True, "percent": 0})
+            update_task("post_sync", status=STATUS_SUCCESS, message="跳过默认页面", progress=0)
             return
 
         try:
@@ -59,15 +61,15 @@ class SyncService:
             # 优先使用本地已有的主页信息，不再强制每次同步都请求 Facebook
             profile = get_page_profile(page_id=self.config.page_id)
             if not profile:
-                update_task_status("post_sync", {"msg": "正在获取主页基本信息...", "percent": 5, "done": False})
+                update_task("post_sync", message="正在获取主页基本信息...", progress=5)
                 profile = await self.facebook.fetch_page_profile()
                 upsert_page_profile(profile)
-            
+
             canonical_page_id = str(profile.get("page_id") or profile.get("id") or "")
             normalized_all_posts = all_posts or post_limit <= 0
-            
+
             status_msg = f"正在获取帖子列表 (limit={post_limit if not normalized_all_posts else '全部'})..."
-            update_task_status("post_sync", {"msg": status_msg, "percent": 15, "done": False})
+            update_task("post_sync", message=status_msg, progress=15)
             
             raw_posts, next_cursor = await self._fetch_posts_for_sync(
                 canonical_page_id=canonical_page_id,
@@ -84,11 +86,11 @@ class SyncService:
 
             total_posts = len(posts)
             if not posts:
-                update_task_status("post_sync", {"msg": "同步完成，未发现新帖子", "percent": 100, "done": True})
+                update_task("post_sync", status=STATUS_SUCCESS, message="同步完成，未发现新帖子", progress=100)
                 return
 
             status_msg = f"发现 {total_posts} 篇帖子，开始同步媒体信息{'和评论' if sync_comments else ''}..."
-            update_task_status("post_sync", {"msg": status_msg, "percent": 25, "done": False})
+            update_task("post_sync", message=status_msg, progress=25)
 
             synced_comment_count = 0
             batch_size = 5
@@ -96,9 +98,8 @@ class SyncService:
 
             for i in range(0, total_posts, batch_size):
                 # 检查是否被用户手动停止
-                from app.registry import get_task_status
-                current = get_task_status("post_sync")
-                if current and current.get("done"):
+                task = get_task("post_sync")
+                if task and task["status"] in (STATUS_SUCCESS, STATUS_FAILED):
                     logger.info("[sync] sync stopped by user")
                     return
 
@@ -111,23 +112,19 @@ class SyncService:
                 processed_count += len(batch)
                 percent = 25 + int((processed_count / total_posts) * 70)
                 status_msg = f"已处理 {processed_count}/{total_posts} 篇帖子..."
-                update_task_status("post_sync", {"msg": status_msg, "percent": percent, "done": False})
+                update_task("post_sync", message=status_msg, progress=percent)
 
-            update_task_status("post_sync", {
-                "msg": "同步完成！", 
-                "percent": 100, 
-                "done": True,
-                "result": {
-                    "page_id": canonical_page_id,
-                    "post_count": total_posts,
-                    "comment_count": synced_comment_count,
-                    "next_cursor": next_cursor,
-                    "all_posts": normalized_all_posts,
-                }
-            })
+            update_task("post_sync", status=STATUS_SUCCESS, message="同步完成！", progress=100,
+                        result={
+                            "page_id": canonical_page_id,
+                            "post_count": total_posts,
+                            "comment_count": synced_comment_count,
+                            "next_cursor": next_cursor,
+                            "all_posts": normalized_all_posts,
+                        })
         except Exception as e:
             logger.error("[sync] Background worker failed: %s", e, exc_info=True)
-            update_task_status("post_sync", {"msg": f"同步失败: {str(e)}", "done": True, "error": True})
+            update_task("post_sync", status=STATUS_FAILED, message=f"同步失败: {str(e)}", error=str(e))
         finally:
             await self.facebook.close()
 

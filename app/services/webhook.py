@@ -65,9 +65,12 @@ class WebhookService:
                 if post_id:
                     va = get_video_analysis(post_id)
                     if va:
-                        parsed = parse_video_analysis_content(va.get("content", ""))
+                        raw = va.get("content", "")
+                        parsed = parse_video_analysis_content(raw)
                         if parsed:
                             video_analysis_ctx = f"拍摄地点：{parsed['location']}；人物行为：{parsed['behavior']}；场景环境：{parsed['environment']}"
+                        elif raw.strip():
+                            video_analysis_ctx = raw.strip()
 
                 try:
                     previous_replies = list_replied_for_post(post_id, limit=10) if post_id else []

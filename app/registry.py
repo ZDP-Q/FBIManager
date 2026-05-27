@@ -6,10 +6,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.services.monitor import MonitorService
 
-import time
+from app.task import (
+    STATUS_CANCELED,
+    STATUS_FAILED,
+    STATUS_RUNNING,
+    STATUS_SUCCESS,
+    get_task,
+    is_task_running,
+    update_task,
+)
 
 _monitor_service: "MonitorService | None" = None
-_task_statuses: dict[str, dict] = {}
 
 
 def set_monitor_service(svc: "MonitorService") -> None:
@@ -24,17 +31,68 @@ def get_monitor_service() -> "MonitorService":
 
 
 def update_task_status(task_name: str, status: dict) -> None:
-    """Updates the global status for a named task (e.g., 'post_sync', 'chat_sync')."""
-    status["updated_at"] = time.time()
-    _task_statuses[task_name] = status
+    """Legacy API: translates old-style status dicts to the unified task service.
+
+    Field mapping:
+      - msg → message
+      - percent → progress
+      - done (bool) + error (bool) → status string
+      - extra fields → result dict
+    """
+    kwargs: dict = {}
+
+    if "msg" in status:
+        kwargs["message"] = status["msg"]
+    if "percent" in status:
+        kwargs["progress"] = status["percent"]
+
+    # Determine status from done/error flags
+    if status.get("done"):
+        if status.get("error"):
+            kwargs["status"] = STATUS_FAILED
+            if "msg" in status:
+                kwargs["error"] = status["msg"]
+        elif status.get("cancel"):
+            kwargs["status"] = STATUS_CANCELED
+        else:
+            kwargs["status"] = STATUS_SUCCESS
+    elif status.get("cancel"):
+        kwargs["status"] = STATUS_CANCELED
+    else:
+        kwargs["status"] = STATUS_RUNNING
+
+    # Collect extra fields into result
+    _KNOWN = {"msg", "percent", "done", "error", "cancel", "updated_at"}
+    extras = {k: v for k, v in status.items() if k not in _KNOWN}
+    if extras:
+        kwargs["result"] = extras
+
+    # Use task_runner-style create if task doesn't exist yet
+    if get_task(task_name) is None:
+        from app.task import create_task
+        create_task(task_name, task_name)
+
+    update_task(task_name, **kwargs)
 
 
 def get_task_status(task_name: str) -> dict | None:
-    """Retrieves the status for a named task."""
-    status = _task_statuses.get(task_name)
-    if status:
-        # Auto-expire tasks older than 10 minutes that are 'completed'
-        if status.get("done") and (time.time() - status["updated_at"] > 600):
-            del _task_statuses[task_name]
-            return None
-    return status
+    """Legacy API: returns status in old dict format for backward compatibility."""
+    task = get_task(task_name)
+    if task is None:
+        return None
+
+    # Translate to old format
+    result: dict = {
+        "msg": task.get("message", ""),
+        "percent": task.get("progress", 0),
+        "done": task["status"] in (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED),
+        "error": task["status"] == STATUS_FAILED,
+        "updated_at": task.get("updated_at", ""),
+    }
+
+    # Merge result extras
+    task_result = task.get("result", {})
+    if isinstance(task_result, dict):
+        result.update(task_result)
+
+    return result

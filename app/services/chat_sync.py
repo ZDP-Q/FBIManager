@@ -16,7 +16,7 @@ from app.repositories import (
     check_message_exists
 )
 
-from app.registry import update_task_status
+from app.task import create_task, update_task, get_task, is_task_running, STATUS_SUCCESS, STATUS_FAILED
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -38,26 +38,29 @@ class ChatSyncService:
 
     async def sync_all_chats(self, page_id: str, full_sync: bool = False) -> AsyncGenerator[str, None]:
         """Progress generator for SSE. It starts the background worker if not already running."""
-        from app.registry import get_task_status
-        current = get_task_status("chat_sync")
-        
-        if not current or current.get("done"):
+        if not is_task_running("chat_sync"):
+            create_task("chat_sync", "聊天同步")
             asyncio.create_task(self._run_sync_worker(page_id, full_sync))
             await asyncio.sleep(0.1)
 
-        last_update = 0
+        last_update = ""
         while True:
-            status = get_task_status("chat_sync")
-            if not status:
+            task = get_task("chat_sync")
+            if not task:
                 break
-                
-            if status.get("updated_at", 0) > last_update:
-                yield "event: progress\ndata: " + json.dumps(status) + "\n\n"
-                last_update = status.get("updated_at", 0)
-            
-            if status.get("done"):
+
+            updated = task.get("updated_at", "")
+            if updated > last_update:
+                legacy = {"msg": task.get("message", ""), "percent": task.get("progress", 0),
+                          "done": task["status"] in (STATUS_SUCCESS, STATUS_FAILED), "updated_at": updated}
+                result = task.get("result", {})
+                if isinstance(result, dict):
+                    legacy.update(result)
+                yield "event: progress\ndata: " + json.dumps(legacy) + "\n\n"
+                last_update = updated
+
+            if task["status"] in (STATUS_SUCCESS, STATUS_FAILED):
                 break
-            
             await asyncio.sleep(1)
 
     async def _run_sync_worker(self, page_id: str, full_sync: bool):
@@ -73,7 +76,7 @@ class ChatSyncService:
             logger.info("[chat_sync] FORCING FULL SYNC - Scanning all folders for Page: %s", page_id)
         
         status_msg = "阶段 1/2: 正在扫描会话列表..."
-        update_task_status("chat_sync", {"msg": status_msg, "percent": 5, "done": False})
+        update_task("chat_sync", message=status_msg, progress=5)
         
         self.conversations_synced = 0
         self.messages_synced = 0
@@ -131,11 +134,9 @@ class ChatSyncService:
                     if stop_folder_sync:
                         break
 
-                    update_task_status("chat_sync", {
-                        "msg": f"阶段 1: 扫描目录 [{folder}] - 已发现 {len(discovered_conv_set)} 个活跃会话...",
-                        "percent": 10,
-                        "done": False
-                    })
+                    update_task("chat_sync",
+                                message=f"阶段 1: 扫描目录 [{folder}] - 已发现 {len(discovered_conv_set)} 个活跃会话...",
+                                progress=10)
 
                     paging = payload.get("paging", {})
                     after = paging.get("cursors", {}).get("after")
@@ -147,18 +148,14 @@ class ChatSyncService:
             logger.info("[chat_sync] Phase 1 complete. Conversations to sync: %d", total_convs)
             
             if total_convs == 0:
-                update_task_status("chat_sync", {
-                    "msg": "没有发现需要同步的新会话。", 
-                    "percent": 100, 
-                    "done": True,
-                    "conversations": 0,
-                    "messages": 0
-                })
+                update_task("chat_sync", status=STATUS_SUCCESS,
+                            message="没有发现需要同步的新会话。", progress=100,
+                            result={"conversations": 0, "messages": 0})
                 return
 
             # --- Phase 2: Message Sync ---
             status_msg = f"阶段 2/2: 正在同步 {total_convs} 个会话的消息..."
-            update_task_status("chat_sync", {"msg": status_msg, "percent": 20, "done": False})
+            update_task("chat_sync", message=status_msg, progress=20)
             
             pending = {
                 asyncio.create_task(self._sync_messages_task(conv_id, full_sync=full_sync))
@@ -169,25 +166,18 @@ class ChatSyncService:
                 done, pending = await asyncio.wait(pending, timeout=1.0, return_when=asyncio.FIRST_COMPLETED)
                 processed = self.conversations_synced
                 percent = 20 + int((processed / total_convs) * 80)
-                update_task_status("chat_sync", {
-                    "msg": f"正在同步消息: {processed}/{total_convs} 会话...",
-                    "messages_synced": self.messages_synced,
-                    "percent": min(99, percent),
-                    "done": False
-                })
+                update_task("chat_sync",
+                            message=f"正在同步消息: {processed}/{total_convs} 会话...",
+                            progress=min(99, percent),
+                            result={"messages_synced": self.messages_synced})
             
             final_msg = f"同步完成！处理了 {total_convs} 个会话，新增/更新 {self.messages_synced} 条消息。"
-            update_task_status("chat_sync", {
-                "msg": final_msg, 
-                "done": True, 
-                "conversations": self.conversations_synced, 
-                "messages": self.messages_synced, 
-                "percent": 100
-            })
-            
+            update_task("chat_sync", status=STATUS_SUCCESS, message=final_msg, progress=100,
+                        result={"conversations": self.conversations_synced, "messages": self.messages_synced})
+
         except Exception as e:
             logger.error("[chat_sync] background worker failed: %s", e, exc_info=True)
-            update_task_status("chat_sync", {"msg": f"同步失败: {str(e)}", "done": True, "error": True})
+            update_task("chat_sync", status=STATUS_FAILED, message=f"同步失败: {str(e)}", error=str(e))
 
     async def _sync_messages_task(self, conv_id: str, full_sync: bool):
         async with self.semaphore:

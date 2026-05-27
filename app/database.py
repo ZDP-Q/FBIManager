@@ -210,6 +210,20 @@ CREATE TABLE IF NOT EXISTS schema_versions (
     version INTEGER PRIMARY KEY,
     applied_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    progress INTEGER NOT NULL DEFAULT 0,
+    message TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT,
+    ended_at TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -259,7 +273,7 @@ def _get_schema_version(connection) -> int:
 
 def _set_schema_version(connection, version: int) -> None:
     connection.execute(
-        "INSERT INTO schema_versions (version) VALUES (?)", (version,)
+        "INSERT OR IGNORE INTO schema_versions (version) VALUES (?)", (version,)
     )
 
 
@@ -338,6 +352,25 @@ def _migrate_schema(connection) -> None:
         if not _column_exists(connection, "comment_attachments", "data"):
             connection.execute("ALTER TABLE comment_attachments ADD COLUMN data BLOB")
         _set_schema_version(connection, 10)
+
+    # v11: create tasks table for unified task management
+    if current < 11:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                progress INTEGER NOT NULL DEFAULT 0,
+                message TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                result TEXT NOT NULL DEFAULT '{}',
+                started_at TEXT,
+                ended_at TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        _set_schema_version(connection, 11)
 
 
 def _seed_auto_monitor_config_if_needed() -> None:

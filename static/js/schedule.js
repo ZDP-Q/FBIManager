@@ -65,7 +65,6 @@ document.addEventListener('DOMContentLoaded', function () {
             updateProgress(0, '正在启动批量分析...');
 
             try {
-                // Start batch analysis
                 const r = await fetch('/api/video/batch-analyze', { method: 'POST' });
                 if (!r.ok) throw new Error((await r.json()).detail || '批量分析失败');
                 const data = await r.json();
@@ -73,31 +72,35 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (data.total === 0) {
                     showAlert('没有需要分析的视频。', 'info');
                     hideProgress();
+                    batchAnalyzeBtn.disabled = false;
+                    batchAnalyzeBtn.textContent = '批量分析未识别视频';
                     return;
                 }
 
-                // Poll progress
-                const timer = setInterval(async () => {
-                    try {
-                        const sr = await fetch('/api/sync/status?task=batch_video_analysis');
-                        const s = await sr.json();
-                        if (s.done) {
-                            clearInterval(timer);
-                            hideProgress();
-                            showAlert(s.msg || '批量分析完成。', s.error ? 'error' : 'success');
-                            setTimeout(() => location.reload(), 1500);
-                        } else {
-                            updateProgress(s.percent || 0, s.msg || '正在分析...');
-                        }
-                    } catch {
-                        clearInterval(timer);
+                const bp = new TaskProgress({
+                    taskId: 'batch_video_analysis',
+                    container: '#progress-container',
+                    bar: '#progress-bar',
+                    status: '#progress-status',
+                    percent: '#progress-percent',
+                    onComplete: (d) => {
                         hideProgress();
-                    }
-                }, 2000);
+                        const msg = (d.result || {}).msg || d.message || '批量分析完成。';
+                        showAlert(msg, 'success');
+                        setTimeout(() => location.reload(), 1500);
+                    },
+                    onError: (msg) => {
+                        hideProgress();
+                        showAlert(msg || '批量分析失败', 'error');
+                    },
+                    onProgress: (d) => {
+                        updateProgress(d.percent ?? 0, d.msg ?? '正在分析...');
+                    },
+                });
+                bp.startPolling(2000);
             } catch (e) {
                 hideProgress();
                 showAlert(e.message, 'error');
-            } finally {
                 batchAnalyzeBtn.disabled = false;
                 batchAnalyzeBtn.textContent = '批量分析未识别视频';
             }

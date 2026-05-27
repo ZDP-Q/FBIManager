@@ -22,7 +22,6 @@ def reset_registry():
     from app import registry
 
     registry._monitor_service = None
-    registry._task_statuses.clear()
 
 
 # ---------------------------------------------------------------------------

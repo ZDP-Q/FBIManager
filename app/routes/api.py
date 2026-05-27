@@ -392,8 +392,8 @@ async def sync_data_stream(limit: int = 0, since: str = "", until: str = "", all
 
 @router.post("/sync/stop")
 async def stop_sync():
-    from app.registry import update_task_status
-    update_task_status("post_sync", {"done": True, "msg": "用户手动停止同步", "error": True, "percent": 0})
+    from app.task import cancel_task
+    cancel_task("post_sync")
     return {"status": "stopped"}
 
 
@@ -670,13 +670,40 @@ async def get_chat_user_ranking_api(limit: int = 100):
     return get_user_ranking_stats(page_id, limit=limit)
 
 
-from app.registry import get_task_status
+from app.task import get_task as _get_task, cancel_task as _cancel_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
 
 @router.get("/sync/status")
 async def get_sync_status_api(task: str):
-    """Query current progress of a specific sync task."""
-    status = get_task_status(task)
-    return status or {"msg": "No active task", "done": True}
+    """Query current progress of a specific sync task. Legacy endpoint."""
+    t = _get_task(task)
+    if not t:
+        return {"msg": "No active task", "done": True}
+    # Return in legacy format for backward compatibility
+    return {
+        "msg": t.get("message", ""),
+        "percent": t.get("progress", 0),
+        "done": t["status"] in (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED),
+        "error": t["status"] == STATUS_FAILED,
+        **(t.get("result", {}) if isinstance(t.get("result"), dict) else {}),
+    }
+
+
+@router.get("/tasks/{task_id}")
+async def get_task_api(task_id: str):
+    """Get task status by ID."""
+    t = _get_task(task_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return t
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task_api(task_id: str):
+    """Cancel a running task."""
+    cancelled = _cancel_task(task_id)
+    if not cancelled:
+        raise HTTPException(status_code=400, detail="任务不存在或未在运行")
+    return {"status": "cancelled"}
 
 
 @router.get("/chats/sync")
@@ -788,7 +815,7 @@ async def analyze_post_video(post_id: str, force: bool = False):
     """Analyze a video post: download from Facebook → base64 → LLM → return result.
     Returns cached result unless force=true.
     """
-    from app.registry import update_task_status
+    from app.task import create_task, update_task, is_task_running, STATUS_SUCCESS, STATUS_FAILED
 
     task_key = f"video_analysis_{post_id}"
 
@@ -803,13 +830,14 @@ async def analyze_post_video(post_id: str, force: bool = False):
     except Exception:
         raise
     finally:
-        update_task_status(task_key, {"msg": "", "done": True})
+        task_mod = __import__("app.task", fromlist=["update_task", "STATUS_SUCCESS"])
+        task_mod.update_task(task_key, status=task_mod.STATUS_SUCCESS)
 
 
 async def _do_analyze(post_id: str, force: bool, task_key: str):
-    from app.registry import update_task_status
+    from app.task import update_task
 
-    update_task_status(task_key, {"msg": "正在获取视频信息...", "percent": 10, "done": False})
+    update_task(task_key, message="正在获取视频信息...", progress=10)
 
     post = get_post(post_id)
     if post is None:
@@ -856,7 +884,7 @@ async def _do_analyze(post_id: str, force: bool, task_key: str):
         raise HTTPException(status_code=502, detail="Facebook 未返回视频下载链接，可能需要额外权限")
 
     # Step 2: Download video
-    update_task_status(task_key, {"msg": "正在下载视频...", "percent": 30, "done": False})
+    update_task(task_key, message="正在下载视频...", progress=30)
     video_bytes = None
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
@@ -872,7 +900,7 @@ async def _do_analyze(post_id: str, force: bool, task_key: str):
         raise HTTPException(status_code=413, detail=f"视频文件过大 ({size_mb:.1f} MB)，超过 50MB 限制")
 
     # Step 3: Base64 encode and send to LLM
-    update_task_status(task_key, {"msg": "正在分析视频内容（可能需要 1-2 分钟）...", "percent": 60, "done": False})
+    update_task(task_key, message="正在分析视频内容（可能需要 1-2 分钟）...", progress=60)
     b64 = base64.b64encode(video_bytes).decode()
     del video_bytes  # Free memory immediately
 
@@ -938,8 +966,7 @@ def _parse_fb_timestamp(ts: str) -> int:
 @router.post("/video/batch-analyze")
 async def batch_analyze_videos():
     """Analyze all video-type posts that don't have analysis yet."""
-    from app.registry import update_task_status
-    from datetime import datetime, timezone
+    from app.task import create_task, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
 
     config = load_config()
     page_id = get_canonical_page_id(config.page_id)
@@ -957,18 +984,20 @@ async def batch_analyze_videos():
 
     task_key = "batch_video_analysis"
     total = len(unanalyzed)
-    update_task_status(task_key, {"msg": f"开始批量分析 {total} 个视频...", "percent": 0, "done": False, "total": total, "completed": 0})
+    create_task(task_key, "批量视频分析")
+    update_task(task_key, status="running", message=f"开始批量分析 {total} 个视频...", progress=0,
+                result={"total": total, "completed": 0})
 
     results = {"success": 0, "failed": 0, "errors": []}
     for i, post in enumerate(unanalyzed):
         # Check for cooperative cancellation
-        status = get_task_status(task_key)
-        if status and status.get("cancel"):
-            update_task_status(task_key, {"msg": "用户取消批量分析", "done": True, "percent": 0, "error": True})
+        task = get_task(task_key)
+        if task and task["status"] == STATUS_CANCELED:
             return {"status": "cancelled", **results}
 
         pct = int((i / total) * 100)
-        update_task_status(task_key, {"msg": f"正在分析第 {i+1}/{total} 个视频...", "percent": pct, "done": False, "total": total, "completed": i})
+        update_task(task_key, message=f"正在分析第 {i+1}/{total} 个视频...", progress=pct,
+                    result={"total": total, "completed": i})
 
         try:
             await _do_analyze(post["id"], True, f"video_analysis_{post['id']}")
@@ -978,7 +1007,9 @@ async def batch_analyze_videos():
             results["errors"].append({"post_id": post["id"], "error": str(exc)})
             logger.error("[batch-analyze] Failed for post=%s: %s", post["id"], exc)
 
-    update_task_status(task_key, {"msg": f"批量分析完成：成功 {results['success']}，失败 {results['failed']}", "percent": 100, "done": True, "total": total, "completed": total})
+    update_task(task_key, status=STATUS_SUCCESS,
+                message=f"批量分析完成：成功 {results['success']}，失败 {results['failed']}", progress=100,
+                result={"total": total, "completed": total})
     return {"status": "success", **results}
 
 

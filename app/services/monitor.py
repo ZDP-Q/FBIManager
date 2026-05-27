@@ -216,9 +216,12 @@ class MonitorService:
         if post.get("type") == "video":
             va = get_video_analysis(post_id)
             if va:
-                parsed = parse_video_analysis_content(va.get("content", ""))
+                raw = va.get("content", "")
+                parsed = parse_video_analysis_content(raw)
                 if parsed:
                     video_analysis_ctx = f"拍摄地点：{parsed['location']}；人物行为：{parsed['behavior']}；场景环境：{parsed['environment']}"
+                elif raw.strip():
+                    video_analysis_ctx = raw.strip()
         if not page_id:
             raise RuntimeError(f"monitor={monitor_id} 关联帖子缺失 page_id")
 
@@ -324,7 +327,6 @@ class MonitorService:
                 last_run_at=datetime.now(timezone.utc).isoformat(),
                 last_run_status=f"待处理 {pending_count}/{_BATCH_THRESHOLD}，等待下一周期",
             )
-            await facebook.close()
             return {"replied": 0, "skipped": 0, "scored": 0, "total": pending_count, "already": 0}
 
         # Step 3: 重载本地评论、归一化、展平
@@ -396,7 +398,6 @@ class MonitorService:
             )
             logger.info("[%s] [monitor] monitor=%s done: %s",
                         finished_at.strftime("%Y-%m-%d %H:%M:%S %z"), monitor_id, status_msg)
-            await facebook.close()
             return stats
 
         # Step 5: 批量评分
@@ -496,7 +497,6 @@ class MonitorService:
             monitor_id,
             status_msg,
         )
-        await facebook.close()
         return stats
 
     async def _process_comment(

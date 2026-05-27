@@ -93,100 +93,83 @@ async function loadUserRanking() {
     }
 }
 
+let chatSyncProgress = null;
+
 function startSync(isFull = false) {
     const btnInc = document.getElementById('btn-sync-chats');
     const btnFull = document.getElementById('btn-full-sync-chats');
-    const wrap = document.getElementById('sync-progress-wrap');
-    const status = document.getElementById('sync-status');
-    const detail = document.getElementById('sync-detail');
-    const fill = document.getElementById('sync-progress-fill');
-    
     if (btnInc) btnInc.disabled = true;
     if (btnFull) btnFull.disabled = true;
-    
-    wrap.style.display = 'block';
-    fill.style.width = '5%';
-    status.textContent = isFull ? '初始化全量同步...' : '初始化增量同步...';
-    
-    const url = `/api/chats/sync?full=${isFull ? 'true' : 'false'}`;
-    const eventSource = new EventSource(url);
-    
-    eventSource.addEventListener('progress', (e) => {
-        const data = JSON.parse(e.data);
-        status.textContent = data.msg;
-        if (data.messages_synced !== undefined) {
-            detail.textContent = `累计消息: ${data.messages_synced}`;
-        }
-        if (data.percent !== undefined) {
-            fill.style.width = data.percent + '%';
-        }
 
-        if (data.done) {
-            fill.style.width = '100%';
-            eventSource.close();
+    chatSyncProgress = new TaskProgress({
+        taskId: 'chat_sync',
+        container: '#sync-progress-wrap',
+        bar: '#sync-progress-fill',
+        status: '#sync-status',
+        percent: null,
+        detail: '#sync-detail',
+        onComplete: (data) => {
             if (btnInc) btnInc.disabled = false;
             if (btnFull) btnFull.disabled = false;
-            showAlert(`${isFull ? '全量' : '增量'}同步完成：${data.conversations} 个会话，${data.messages} 条消息。`, 'success');
+            const result = data.result || {};
+            showAlert(`${isFull ? '全量' : '增量'}同步完成：${result.conversations ?? 0} 个会话，${result.messages ?? 0} 条消息。`, 'success');
             loadDashboard();
-        }
+        },
+        onError: (msg) => {
+            if (btnInc) btnInc.disabled = false;
+            if (btnFull) btnFull.disabled = false;
+            showAlert(msg || '同步失败', 'error');
+        },
+        onProgress: (data) => {
+            const detail = document.getElementById('sync-detail');
+            if (detail && data.messages_synced !== undefined) {
+                detail.textContent = `累计消息: ${data.messages_synced}`;
+            }
+        },
     });
-    
-    eventSource.addEventListener('error', (e) => {
-        console.error('SSE Error:', e);
-        eventSource.close();
-        if (btnInc) btnInc.disabled = false;
-        if (btnFull) btnFull.disabled = false;
-        status.textContent = '同步出错';
-        showAlert('同步过程中发生错误，请检查网络或日志。', 'error');
-    });
+    chatSyncProgress.startSSE(`/api/chats/sync?full=${isFull ? 'true' : 'false'}`, { eventName: 'progress' });
 }
 
 document.getElementById('btn-sync-chats')?.addEventListener('click', () => startSync(false));
 document.getElementById('btn-full-sync-chats')?.addEventListener('click', () => startSync(true));
 
 async function checkOngoingSync() {
-    try {
-        const res = await fetch('/api/sync/status?task=chat_sync');
-        const data = await res.json();
-        
-        if (data && !data.done) {
-            // Restore UI state
-            const wrap = document.getElementById('sync-progress-wrap');
-            const status = document.getElementById('sync-status');
-            const detail = document.getElementById('sync-detail');
-            const fill = document.getElementById('sync-progress-fill');
+    chatSyncProgress = new TaskProgress({
+        taskId: 'chat_sync',
+        container: '#sync-progress-wrap',
+        bar: '#sync-progress-fill',
+        status: '#sync-status',
+        percent: null,
+        detail: '#sync-detail',
+        onComplete: (data) => {
             const btnInc = document.getElementById('btn-sync-chats');
             const btnFull = document.getElementById('btn-full-sync-chats');
-
-            wrap.style.display = 'block';
-            status.textContent = data.msg;
-            if (data.percent !== undefined) fill.style.width = data.percent + '%';
-            if (data.messages_synced !== undefined) detail.textContent = `累计消息: ${data.messages_synced}`;
-            
-            if (btnInc) btnInc.disabled = true;
-            if (btnFull) btnFull.disabled = true;
-
-            // Start polling until done
-            const timer = setInterval(async () => {
-                const r = await fetch('/api/sync/status?task=chat_sync');
-                const d = await r.json();
-                if (!d || d.done) {
-                    clearInterval(timer);
-                    if (btnInc) btnInc.disabled = false;
-                    if (btnFull) btnFull.disabled = false;
-                    if (d && !d.error) {
-                        fill.style.width = '100%';
-                        showAlert('同步已在后台完成', 'success');
-                        loadDashboard();
-                    } else if (d && d.error) {
-                        showAlert(d.msg || '同步失败', 'error');
-                    }
-                } else {
-                    status.textContent = d.msg;
-                    if (d.percent !== undefined) fill.style.width = d.percent + '%';
-                    if (d.messages_synced !== undefined) detail.textContent = `累计消息: ${d.messages_synced}`;
-                }
-            }, 2000);
+            if (btnInc) btnInc.disabled = false;
+            if (btnFull) btnFull.disabled = false;
+            showAlert('同步已在后台完成', 'success');
+            loadDashboard();
+        },
+        onError: (msg) => {
+            const btnInc = document.getElementById('btn-sync-chats');
+            const btnFull = document.getElementById('btn-full-sync-chats');
+            if (btnInc) btnInc.disabled = false;
+            if (btnFull) btnFull.disabled = false;
+            showAlert(msg || '同步失败', 'error');
+        },
+        onProgress: (data) => {
+            const detail = document.getElementById('sync-detail');
+            if (detail && data.messages_synced !== undefined) {
+                detail.textContent = `累计消息: ${data.messages_synced}`;
+            }
+        },
+    });
+    const found = await chatSyncProgress.restore();
+    if (found) {
+        const btnInc = document.getElementById('btn-sync-chats');
+        const btnFull = document.getElementById('btn-full-sync-chats');
+        if (btnInc) btnInc.disabled = true;
+        if (btnFull) btnFull.disabled = true;
+    }
         }
     } catch (err) {
         console.error('Failed to check sync status:', err);
