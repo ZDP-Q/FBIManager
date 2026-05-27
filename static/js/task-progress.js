@@ -28,6 +28,7 @@ class TaskProgress {
         this._eventSource = null;
         this._pollTimer = null;
         this._done = false;
+        this._seenRunning = false;
     }
 
     _show() {
@@ -101,14 +102,20 @@ class TaskProgress {
     startPolling(interval = 2000) {
         this._show();
         this.stop();
+        this._seenRunning = false;
 
         const poll = async () => {
             try {
                 const res = await fetch(`/api/sync/status?task=${encodeURIComponent(this.taskId)}`);
                 const data = await res.json();
                 if (!data || data.done) {
-                    this._handleDone(data || { error: true, msg: '任务不存在' });
+                    // Only fire done if we've seen the task running first.
+                    // This prevents picking up stale completed tasks from previous runs.
+                    if (this._seenRunning) {
+                        this._handleDone(data || { error: true, msg: '任务不存在' });
+                    }
                 } else {
+                    this._seenRunning = true;
                     this._updateUI(data);
                 }
             } catch {
@@ -117,7 +124,6 @@ class TaskProgress {
             }
         };
 
-        // Immediate first poll
         poll();
         this._pollTimer = setInterval(poll, interval);
     }
