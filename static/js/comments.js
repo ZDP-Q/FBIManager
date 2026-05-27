@@ -176,11 +176,14 @@ window.delComment = async function(commentId) {
 
 async function checkAnalyzingPosts() {
     const btns = document.querySelectorAll('[id^="btn-analyze-"]');
+    if (btns.length === 0) return;
+
+    // Batch check: use /api/tasks endpoint, skip non-existent tasks
     const checks = [];
     btns.forEach(btn => {
         const postId = btn.id.replace('btn-analyze-', '');
         checks.push(
-            fetch(`/api/sync/status?task=video_analysis_${postId}`)
+            fetch(`/api/tasks/video_analysis_${postId}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(data => ({ postId, data }))
                 .catch(() => ({ postId, data: null }))
@@ -188,7 +191,7 @@ async function checkAnalyzingPosts() {
     });
     const results = await Promise.all(checks);
     for (const { postId, data } of results) {
-        if (!data || data.done) continue;
+        if (!data || data.status === 'success' || data.status === 'failed' || data.status === 'canceled') continue;
         const resultEl = document.getElementById(`analysis-${postId}`);
         if (resultEl) {
             resultEl.style.display = 'block';
@@ -202,15 +205,15 @@ async function checkAnalyzingPosts() {
         // Poll until done
         const timer = setInterval(async () => {
             try {
-                const r = await fetch(`/api/sync/status?task=video_analysis_${postId}`);
+                const r = await fetch(`/api/tasks/video_analysis_${postId}`);
+                if (!r.ok) { clearInterval(timer); location.reload(); return; }
                 const d = await r.json();
-                if (!d || d.done) {
+                if (d.status === 'success' || d.status === 'failed' || d.status === 'canceled') {
                     clearInterval(timer);
-                    // Reload to show the result from DB
                     location.reload();
                 } else {
                     const el = document.getElementById(`analysis-${postId}`);
-                    if (el) el.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${d.msg || '正在分析视频...'}</div>`;
+                    if (el) el.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${d.message || '正在分析视频...'}</div>`;
                 }
             } catch { clearInterval(timer); }
         }, 2000);
