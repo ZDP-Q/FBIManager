@@ -51,26 +51,27 @@ class FacebookService:
         last_exc: Exception | None = None
         client = self._get_client()
 
-        for attempt in range(3):
-            try:
-                response = await client.request(
-                    method,
-                    f"{self.base_url}/{path.lstrip('/')}",
-                    params=merged_params,
-                    json=json_body,
-                )
+        async with self._semaphore:
+            for attempt in range(3):
+                try:
+                    response = await client.request(
+                        method,
+                        f"{self.base_url}/{path.lstrip('/')}",
+                        params=merged_params,
+                        json=json_body,
+                    )
 
-                if response.status_code == 429 or response.status_code >= 500:
+                    if response.status_code == 429 or response.status_code >= 500:
+                        if attempt < 2:
+                            await asyncio.sleep(0.5 * (2 ** attempt))
+                            continue
+                    break
+                except httpx.RequestError as exc:
+                    last_exc = exc
                     if attempt < 2:
-                        await asyncio.sleep(0.5 * (2 ** attempt))
+                        await asyncio.sleep(1.0 * (2 ** attempt))
                         continue
-                break
-            except httpx.RequestError as exc:
-                last_exc = exc
-                if attempt < 2:
-                    await asyncio.sleep(1.0 * (2 ** attempt))
-                    continue
-                break
+                    break
 
         if response is None:
             raise RuntimeError(f"Facebook API 请求失败：{last_exc or '未收到响应'}")
@@ -247,12 +248,11 @@ class FacebookService:
         if since:
             params["since"] = since
 
-        async with self._semaphore:
-            payload = await self._request(
-                "GET",
-                f"{comment_id}/comments",
-                params=params,
-            )
+        payload = await self._request(
+            "GET",
+            f"{comment_id}/comments",
+            params=params,
+        )
         return payload.get("data", [])
 
     async def _populate_replies(

@@ -45,10 +45,14 @@ async def handle_webhook(request: Request):
             except Exception:
                 continue
 
-            partial = await WebhookService(config).process_payload({"object": "page", "entry": [entry]})
-            total["processed"] += int(partial.get("processed", 0))
-            total["replied"] += int(partial.get("replied", 0))
-            total["skipped"] += int(partial.get("skipped", 0))
+            svc = WebhookService(config)
+            try:
+                partial = await svc.process_payload({"object": "page", "entry": [entry]})
+                total["processed"] += int(partial.get("processed", 0))
+                total["replied"] += int(partial.get("replied", 0))
+                total["skipped"] += int(partial.get("skipped", 0))
+            finally:
+                await svc.close()
     except Exception:
         total = {"processed": 0, "replied": 0, "skipped": 0}
 

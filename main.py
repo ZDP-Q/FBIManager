@@ -30,5 +30,3 @@ if __name__ == "__main__":
     except (KeyboardInterrupt, SystemExit):
         # Graceful exit without printing Traceback noise
         pass
-
-        pass

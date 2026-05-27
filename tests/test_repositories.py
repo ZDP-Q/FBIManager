@@ -410,7 +410,7 @@ class TestCommentAttachments:
         assert len(atts) >= 1
 
     def test_compress_attachment_webp(self, setup_db):
-        from app.repositories import _compress_attachment
+        from app.services.attachments import _compress_attachment
         from PIL import Image
         import io
 
@@ -427,7 +427,7 @@ class TestCommentAttachments:
         assert len(result) < len(png_data)
 
     def test_compress_attachment_small_image_no_regression(self, setup_db):
-        from app.repositories import _compress_attachment
+        from app.services.attachments import _compress_attachment
 
         # Very small data that can't be decoded as image
         result = _compress_attachment(b"not an image", "photo")

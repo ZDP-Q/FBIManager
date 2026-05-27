@@ -12,6 +12,8 @@ services:
       - http_proxy=
       - https_proxy=
       - no_proxy=
+      - PUSH_URL=
+      - PUSH_TOKEN=
     volumes:
       # 持久化数据库
       - ../data:/app/data

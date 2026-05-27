@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import SESSION_COOKIE, authenticate_admin, create_session, is_authenticated
 from app.config import PROJECT_ROOT, load_config
 from app.repositories import list_comments_by_post_ids, list_monitors, list_posts, get_canonical_page_id
-from app.repositories import list_posts_with_analysis
+from app.repositories import list_posts_with_analysis, parse_video_analysis_content
 from app.repositories import cleanup_expired_admin_sessions, delete_admin_session
 from app.security import SESSION_TTL_HOURS, generate_session_id
 
@@ -85,14 +85,7 @@ async def content_page(request: Request, limit: int = 50):
         msg = post.get("message") or ""
         analysis = get_video_analysis(post["id"]) if post.get("type") == "video" else None
         video_analysis = analysis.get("content", "") if analysis else ""
-        video_analysis_json = None
-        if video_analysis:
-            try:
-                parsed = json.loads(video_analysis)
-                if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
-                    video_analysis_json = parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
+        video_analysis_json = parse_video_analysis_content(video_analysis)
 
         post_data = {
             **post,
@@ -156,15 +149,8 @@ async def schedule_page(request: Request):
 
     posts = []
     for row in rows:
-        analysis_json = None
         content = row.get("analysis_content", "")
-        if content:
-            try:
-                parsed = json.loads(content)
-                if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
-                    analysis_json = parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
+        analysis_json = parse_video_analysis_content(content)
 
         posts.append({
             "id": row["id"],

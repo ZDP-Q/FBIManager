@@ -205,6 +205,11 @@ CREATE TABLE IF NOT EXISTS comment_attachments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachments_comment ON comment_attachments(comment_id);
+
+CREATE TABLE IF NOT EXISTS schema_versions (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -216,6 +221,7 @@ def get_connection():
     connection = sqlite3.connect(DB_PATH, autocommit=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode=WAL")
     try:
         yield connection
     finally:
@@ -226,66 +232,89 @@ def init_db() -> None:
     with get_connection() as connection:
         connection.executescript(SCHEMA_SQL)
 
-    # Migration: add columns if they don't exist yet
     with get_connection() as connection:
-        try:
+        _migrate_schema(connection)
+
+    _seed_auto_monitor_config_if_needed()
+    _seed_settings_from_legacy_json_if_needed()
+    _seed_admin_auth_if_needed()
+
+
+# ---------------------------------------------------------------------------
+# Schema migration helpers
+# ---------------------------------------------------------------------------
+
+def _column_exists(connection, table: str, column: str) -> bool:
+    rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row[1] == column for row in rows)
+
+
+def _get_schema_version(connection) -> int:
+    try:
+        row = connection.execute("SELECT MAX(version) FROM schema_versions").fetchone()
+        return row[0] if row and row[0] is not None else 0
+    except Exception:
+        return 0
+
+
+def _set_schema_version(connection, version: int) -> None:
+    connection.execute(
+        "INSERT INTO schema_versions (version) VALUES (?)", (version,)
+    )
+
+
+def _migrate_schema(connection) -> None:
+    current = _get_schema_version(connection)
+
+    # v2: add type, is_hidden to posts
+    if current < 2:
+        if not _column_exists(connection, "posts", "type"):
             connection.execute("ALTER TABLE posts ADD COLUMN type TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-        
-        try:
+        if not _column_exists(connection, "posts", "is_hidden"):
             connection.execute("ALTER TABLE posts ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        
-        try:
+        _set_schema_version(connection, 2)
+
+    # v3: add prompt_template to model_configs
+    if current < 3:
+        if not _column_exists(connection, "model_configs", "prompt_template"):
             connection.execute("ALTER TABLE model_configs ADD COLUMN prompt_template TEXT NOT NULL DEFAULT 'reply_prompt.j2'")
-        except Exception:
-            pass
+        _set_schema_version(connection, 3)
 
-        try:
+    # v4: add enabled to auto_monitor_schedules
+    if current < 4:
+        if not _column_exists(connection, "auto_monitor_schedules", "enabled"):
             connection.execute("ALTER TABLE auto_monitor_schedules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
-        except Exception:
-            pass
+        _set_schema_version(connection, 4)
 
-        try:
+    # v5: add video_ai_model (legacy column, may have existed pre-reply/video split)
+    if current < 5:
+        if not _column_exists(connection, "model_configs", "video_ai_model"):
             connection.execute("ALTER TABLE model_configs ADD COLUMN video_ai_model TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
+        _set_schema_version(connection, 5)
 
-        try:
+    # v6: add pushed_at to video_analyses
+    if current < 6:
+        if not _column_exists(connection, "video_analyses", "pushed_at"):
             connection.execute("ALTER TABLE video_analyses ADD COLUMN pushed_at TEXT DEFAULT NULL")
-        except Exception:
-            pass
+        _set_schema_version(connection, 6)
 
-        # Migration: split model_configs into reply + video
-        try:
-            connection.execute("ALTER TABLE model_configs ADD COLUMN reply_api_base_url TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-        try:
-            connection.execute("ALTER TABLE model_configs ADD COLUMN reply_api_key TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-        try:
-            connection.execute("ALTER TABLE model_configs ADD COLUMN reply_model TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-        try:
-            connection.execute("ALTER TABLE model_configs ADD COLUMN video_api_base_url TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-        try:
-            connection.execute("ALTER TABLE model_configs ADD COLUMN video_api_key TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
-        try:
-            connection.execute("ALTER TABLE model_configs ADD COLUMN video_model TEXT NOT NULL DEFAULT ''")
-        except Exception:
-            pass
+    # v7: split model_configs into reply + video (add new columns)
+    if current < 7:
+        for col, col_type in [
+            ("reply_api_base_url", "TEXT NOT NULL DEFAULT ''"),
+            ("reply_api_key", "TEXT NOT NULL DEFAULT ''"),
+            ("reply_model", "TEXT NOT NULL DEFAULT ''"),
+            ("video_api_base_url", "TEXT NOT NULL DEFAULT ''"),
+            ("video_api_key", "TEXT NOT NULL DEFAULT ''"),
+            ("video_model", "TEXT NOT NULL DEFAULT ''"),
+        ]:
+            if not _column_exists(connection, "model_configs", col):
+                connection.execute(f"ALTER TABLE model_configs ADD COLUMN {col} {col_type}")
+        _set_schema_version(connection, 7)
 
-        # Migrate: copy old ai_* columns to reply_* (one-time)
-        try:
+    # v8: one-time data migration from old ai_* / video_ai_model columns to reply_*/video_*
+    if current < 8:
+        if _column_exists(connection, "model_configs", "ai_api_base_url"):
             connection.execute(
                 "UPDATE model_configs SET "
                 "reply_api_base_url = COALESCE(NULLIF(ai_api_base_url, ''), reply_api_base_url), "
@@ -296,22 +325,19 @@ def init_db() -> None:
                 "video_api_key = COALESCE(NULLIF(ai_api_key, ''), video_api_key) "
                 "WHERE reply_api_base_url = '' OR reply_api_key = '' OR reply_model = ''"
             )
-        except Exception:
-            pass
+        _set_schema_version(connection, 8)
 
-        try:
+    # v9: add screened to comments
+    if current < 9:
+        if not _column_exists(connection, "comments", "screened"):
             connection.execute("ALTER TABLE comments ADD COLUMN screened INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
+        _set_schema_version(connection, 9)
 
-        try:
+    # v10: add data BLOB to comment_attachments
+    if current < 10:
+        if not _column_exists(connection, "comment_attachments", "data"):
             connection.execute("ALTER TABLE comment_attachments ADD COLUMN data BLOB")
-        except Exception:
-            pass
-
-    _seed_auto_monitor_config_if_needed()
-    _seed_settings_from_legacy_json_if_needed()
-    _seed_admin_auth_if_needed()
+        _set_schema_version(connection, 10)
 
 
 def _seed_auto_monitor_config_if_needed() -> None:

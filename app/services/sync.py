@@ -7,6 +7,7 @@ from typing import Any
 from app.config import AppConfig
 from app.repositories import replace_comments_for_post, upsert_page_profile, upsert_post, list_posts, get_canonical_page_id
 from app.services.facebook import FacebookService
+from app.services.attachments import download_comment_attachments
 from app.registry import update_task_status
 
 
@@ -134,29 +135,32 @@ class SyncService:
         if self.config.page_id == "default-page":
             logger.warning("[sync_post] Skipping sync for 'default-page' as it is a placeholder.")
             return {"status": "skipped", "reason": "default-page"}
-        
+
         logger.info("[sync] start syncing single post=%s", post_id)
-        from app.repositories import get_page_profile
-        profile = get_page_profile(page_id=self.config.page_id)
-        if not profile:
-            profile = await self.facebook.fetch_page_profile()
-            upsert_page_profile(profile)
-        
-        canonical_page_id = str(profile.get("page_id") or profile.get("id") or "")
+        try:
+            from app.repositories import get_page_profile
+            profile = get_page_profile(page_id=self.config.page_id)
+            if not profile:
+                profile = await self.facebook.fetch_page_profile()
+                upsert_page_profile(profile)
 
-        post = await self.facebook.fetch_post(post_id)
-        if not self._is_post_from_current_page(post, canonical_page_id):
-            raise RuntimeError("目标帖子不属于当前主页，已拒绝同步")
+            canonical_page_id = str(profile.get("page_id") or profile.get("id") or "")
 
-        await self._sync_post_media(canonical_page_id, post)
-        comment_count = await self._sync_post_comments(post)
+            post = await self.facebook.fetch_post(post_id)
+            if not self._is_post_from_current_page(post, canonical_page_id):
+                raise RuntimeError("目标帖子不属于当前主页，已拒绝同步")
 
-        logger.info("[sync] single post synced: post=%s comments=%s", post_id, comment_count)
-        return {
-            "page_id": canonical_page_id or self.config.page_id,
-            "post_id": post_id,
-            "comment_count": comment_count,
-        }
+            await self._sync_post_media(canonical_page_id, post)
+            comment_count = await self._sync_post_comments(post)
+
+            logger.info("[sync] single post synced: post=%s comments=%s", post_id, comment_count)
+            return {
+                "page_id": canonical_page_id or self.config.page_id,
+                "post_id": post_id,
+                "comment_count": comment_count,
+            }
+        finally:
+            await self.facebook.close()
 
     def _is_post_from_current_page(self, post: dict[str, Any], canonical_page_id: str) -> bool:
         # 如果存在 from 字段且 id 明确，直接使用 from 来判断是不是主页自己的帖子
@@ -248,7 +252,6 @@ class SyncService:
             count = sum(self._count_comment_tree(c) for c in all_comments)
 
             # Download attachments
-            from app.repositories import download_comment_attachments
 
             async def _walk_attachments(cs: list[dict[str, Any]]) -> int:
                 count = 0

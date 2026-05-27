@@ -52,6 +52,7 @@ from app.repositories import (
     get_video_analysis,
     update_video_analysis,
     update_video_analysis_pushed,
+    parse_video_analysis_content,
 )
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
@@ -346,14 +347,14 @@ async def page_profile():
 @router.post("/page-profile/refresh")
 async def refresh_page_profile():
     config = load_config()
-    facebook = FacebookService(config)
-    try:
-        profile = await facebook.fetch_page_profile()
-        from app.repositories import upsert_page_profile
-        upsert_page_profile(profile)
-        return profile
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"刷新主页信息失败: {exc}") from exc
+    async with FacebookService(config) as facebook:
+        try:
+            profile = await facebook.fetch_page_profile()
+            from app.repositories import upsert_page_profile
+            upsert_page_profile(profile)
+            return profile
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"刷新主页信息失败: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -419,11 +420,11 @@ async def get_post_comments(post_id: str):
 @router.post("/comments/{comment_id}/reply")
 async def create_reply(comment_id: str, payload: ReplyPayload):
     config = load_config()
-    facebook = FacebookService(config)
-    sync_service = SyncService(config)
     try:
-        comment = get_comment(comment_id)
-        await facebook.send_reply(comment_id, payload.message)
+        async with FacebookService(config) as facebook:
+            comment = get_comment(comment_id)
+            await facebook.send_reply(comment_id, payload.message)
+        sync_service = SyncService(config)
         if comment is not None:
             summary = await sync_service.sync_post(str(comment.get("post_id", "")))
         else:
@@ -461,17 +462,17 @@ async def create_ai_reply(comment_id: str):
 @router.delete("/comments/{comment_id}")
 async def remove_comment(comment_id: str):
     config = load_config()
-    facebook = FacebookService(config)
-    try:
-        deleted = await facebook.delete_comment(comment_id)
-        if not deleted:
-            raise HTTPException(status_code=500, detail="Facebook 未确认删除成功")
-        delete_comment_local(comment_id)
-        return {"status": "success"}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    async with FacebookService(config) as facebook:
+        try:
+            deleted = await facebook.delete_comment(comment_id)
+            if not deleted:
+                raise HTTPException(status_code=500, detail="Facebook 未确认删除成功")
+            delete_comment_local(comment_id)
+            return {"status": "success"}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -684,9 +685,16 @@ async def sync_chats_api(full: bool = False):
     page_id = get_canonical_page_id(config.page_id)
     fb_service = FacebookService(config)
     sync_service = ChatSyncService(fb_service)
-    
+
+    async def event_generator():
+        try:
+            async for event in sync_service.sync_all_chats(page_id, full_sync=full):
+                yield event
+        finally:
+            await fb_service.close()
+
     return StreamingResponse(
-        sync_service.sync_all_chats(page_id, full_sync=full),
+        event_generator(),
         media_type="text/event-stream"
     )
 
@@ -925,8 +933,6 @@ def _parse_fb_timestamp(ts: str) -> int:
 
 # ---- Schedule management endpoints ----
 
-PUSH_URL = "https://manager.banlv-ai.com/api/schedule"
-PUSH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcmFkbWluIiwiZXhwIjoxODEwOTcwNDg3fQ.duPk17XOMk5kVjn8gqkuL3Vhp25bsCByVHS7BfecsIU"
 
 
 @router.post("/video/batch-analyze")
@@ -979,20 +985,23 @@ async def batch_analyze_videos():
 @router.post("/video/push/{post_id}")
 async def push_video_analysis(post_id: str):
     """Push a video analysis result to the external schedule API."""
+    import os
     from datetime import datetime, timezone
+
+    push_url = os.getenv("PUSH_URL", "").strip()
+    push_token = os.getenv("PUSH_TOKEN", "").strip()
+    if not push_url or not push_token:
+        raise HTTPException(status_code=500, detail="未配置 PUSH_URL / PUSH_TOKEN 环境变量")
 
     analysis = get_video_analysis(post_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="未找到该帖子的分析记录")
 
     content_raw = analysis.get("content", "")
-    try:
-        parsed = json.loads(content_raw)
-        if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
-            content = f"{parsed['location']}\n{parsed['behavior']}\n{parsed['environment']}"
-        else:
-            content = content_raw
-    except (json.JSONDecodeError, TypeError):
+    parsed = parse_video_analysis_content(content_raw)
+    if parsed:
+        content = f"{parsed['location']}\n{parsed['behavior']}\n{parsed['environment']}"
+    else:
         content = content_raw
 
     post = get_post(post_id)
@@ -1009,11 +1018,11 @@ async def push_video_analysis(post_id: str):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                PUSH_URL,
+                push_url,
                 json=payload,
                 headers={
                     "Content-Type": "application/json",
-                    "Cookie": f"mgr_token={PUSH_TOKEN}",
+                    "Cookie": f"mgr_token={push_token}",
                 },
             )
             resp.raise_for_status()

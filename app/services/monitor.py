@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
 import random
@@ -16,6 +15,7 @@ from app.repositories import (
     get_page_profile,
     get_post,
     get_video_analysis,
+    parse_video_analysis_content,
     has_replied,
     list_comments_by_post_ids,
     list_monitors,
@@ -34,6 +34,7 @@ from app.repositories import (
     list_monitored_post_ids,
 )
 from app.services.ai_reply import AIReplyService
+from app.services.attachments import download_comment_attachments
 from app.services.facebook import FacebookService
 
 logger = logging.getLogger("uvicorn.error")
@@ -215,14 +216,9 @@ class MonitorService:
         if post.get("type") == "video":
             va = get_video_analysis(post_id)
             if va:
-                raw = va.get("content", "")
-                try:
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, dict) and all(k in parsed for k in ("location", "behavior", "environment")):
-                        video_analysis_ctx = f"拍摄地点：{parsed['location']}；人物行为：{parsed['behavior']}；场景环境：{parsed['environment']}"
-                except (json.JSONDecodeError, TypeError):
-                    if raw.strip():
-                        video_analysis_ctx = raw.strip()
+                parsed = parse_video_analysis_content(va.get("content", ""))
+                if parsed:
+                    video_analysis_ctx = f"拍摄地点：{parsed['location']}；人物行为：{parsed['behavior']}；场景环境：{parsed['environment']}"
         if not page_id:
             raise RuntimeError(f"monitor={monitor_id} 关联帖子缺失 page_id")
 
@@ -267,7 +263,6 @@ class MonitorService:
                     upsert_comment(post_id, None, comment)
 
                 # 下载新评论中的附件
-                from app.repositories import download_comment_attachments
                 attached = 0
                 async def _dl_attachments(cs):
                     nonlocal attached
@@ -329,6 +324,7 @@ class MonitorService:
                 last_run_at=datetime.now(timezone.utc).isoformat(),
                 last_run_status=f"待处理 {pending_count}/{_BATCH_THRESHOLD}，等待下一周期",
             )
+            await facebook.close()
             return {"replied": 0, "skipped": 0, "scored": 0, "total": pending_count, "already": 0}
 
         # Step 3: 重载本地评论、归一化、展平
@@ -400,6 +396,7 @@ class MonitorService:
             )
             logger.info("[%s] [monitor] monitor=%s done: %s",
                         finished_at.strftime("%Y-%m-%d %H:%M:%S %z"), monitor_id, status_msg)
+            await facebook.close()
             return stats
 
         # Step 5: 批量评分
@@ -499,6 +496,7 @@ class MonitorService:
             monitor_id,
             status_msg,
         )
+        await facebook.close()
         return stats
 
     async def _process_comment(
