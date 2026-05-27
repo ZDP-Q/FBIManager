@@ -1,0 +1,30 @@
+{
+  "name": "fbimanager",
+  "version": "1.0.0",
+  "description": "[English Version](./README.md)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test:js": "vitest run",
+    "test:js:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZDP-Q/FBIManager.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ZDP-Q/FBIManager/issues"
+  },
+  "homepage": "https://github.com/ZDP-Q/FBIManager#readme",
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.7"
+  }
+}

@@ -10,6 +10,7 @@ from typing import Any
 from app.config import load_config
 from app.repositories import (
     count_pending_comments,
+    get_oldest_pending_comment_time,
     get_latest_comment_time,
     get_monitor,
     get_page_profile,
@@ -69,7 +70,14 @@ class MonitorService:
         monitor = get_monitor(monitor_id)
         if monitor is None:
             raise ValueError(f"Monitor {monitor_id} not found")
-        return await self._execute_monitor(monitor)
+        post = get_post(monitor["post_id"]) or {}
+        page_id = str(post.get("page_id", ""))
+        config = load_config(page_id=page_id)
+        facebook = FacebookService(config)
+        try:
+            return await self._execute_monitor(monitor, facebook)
+        finally:
+            await facebook.close()
 
     # ------------------------------------------------------------------
     # Internal loop
@@ -150,8 +158,7 @@ class MonitorService:
                 
                 # Fetch recent posts (limit 15 for discovery)
                 logger.info("[monitor] auto-discovery: fetching posts for account %s (%s)", account["name"], page_id)
-                async for step in sync_svc.sync_all_gen(post_limit=15):
-                    pass
+                await sync_svc.sync_all(post_limit=15)
                 
                 # After sync, get all post IDs for this page and their monitor status
                 from app.repositories import list_posts
@@ -188,9 +195,13 @@ class MonitorService:
             last_run_at=datetime.now(timezone.utc).isoformat(),
             last_run_status="等待执行...",
         )
+        post = get_post(monitor["post_id"]) or {}
+        page_id = str(post.get("page_id", ""))
+        config = load_config(page_id=page_id)
+        facebook = FacebookService(config)
         try:
             async with self._semaphore:
-                await self._execute_monitor(monitor)
+                await self._execute_monitor(monitor, facebook)
         except Exception as exc:
             logger.exception("[monitor] monitor=%s failed with exception", monitor_id)
             update_monitor(
@@ -199,16 +210,16 @@ class MonitorService:
                 last_run_status=f"ERROR: {type(exc).__name__}: {str(exc)[:300]}",
             )
         finally:
+            await facebook.close()
             self._running_monitors.discard(monitor_id)
 
-    async def _execute_monitor(self, monitor: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_monitor(self, monitor: dict[str, Any], facebook: FacebookService) -> dict[str, Any]:
         monitor_id = monitor["id"]
         post_id = monitor["post_id"]
 
         logger.info("[monitor] running monitor=%s post=%s (unlimited depth mode)", monitor_id, post_id)
 
         post = get_post(post_id) or {}
-        # 优先从数据库中获取规范化的数字 Page ID
         page_id = str(post.get("page_id", ""))
 
         # 加载视频分析内容作为 AI 上下文
@@ -226,7 +237,6 @@ class MonitorService:
             raise RuntimeError(f"monitor={monitor_id} 关联帖子缺失 page_id")
 
         config = load_config(page_id=page_id)
-        facebook = FacebookService(config)
         ai = AIReplyService(config)
 
         # Step 0: 优先使用本地已同步的评论；若无则触发内容中心同步
@@ -282,7 +292,7 @@ class MonitorService:
         # Step 2: 检查待处理评论是否达到批量处理门槛
         pending_count = count_pending_comments(post_id)
         is_first_cycle = not monitor.get("last_run_at")
-        _BATCH_THRESHOLD = 50
+        _BATCH_THRESHOLD = 30
 
         # 首次周期：全量拉取 + 删除检测
         if is_first_cycle:
@@ -320,14 +330,27 @@ class MonitorService:
                     upsert_comment(post_id, None, comment)
 
         if not is_first_cycle and pending_count < _BATCH_THRESHOLD:
-            logger.info("[monitor] monitor=%s: 待处理 %d < 门槛 %d，跳过本周期",
-                        monitor_id, pending_count, _BATCH_THRESHOLD)
-            update_monitor(
-                monitor_id,
-                last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_run_status=f"待处理 {pending_count}/{_BATCH_THRESHOLD}，等待下一周期",
-            )
-            return {"replied": 0, "skipped": 0, "scored": 0, "total": pending_count, "already": 0}
+            # 时间触发：如果最老的 pending 评论超过 1 小时，也触发处理
+            oldest_time = get_oldest_pending_comment_time(post_id)
+            has_old_comments = False
+            if oldest_time:
+                try:
+                    oldest_dt = datetime.fromisoformat(oldest_time)
+                    if oldest_dt.tzinfo is None:
+                        oldest_dt = oldest_dt.replace(tzinfo=timezone.utc)
+                    has_old_comments = (datetime.now(timezone.utc) - oldest_dt).total_seconds() > 3600
+                except ValueError:
+                    pass
+
+            if not has_old_comments:
+                logger.info("[monitor] monitor=%s: 待处理 %d < 门槛 %d，且无超过 1 小时的评论，跳过本周期",
+                            monitor_id, pending_count, _BATCH_THRESHOLD)
+                update_monitor(
+                    monitor_id,
+                    last_run_at=datetime.now(timezone.utc).isoformat(),
+                    last_run_status=f"待处理 {pending_count}/{_BATCH_THRESHOLD}，等待下一周期",
+                )
+                return {"replied": 0, "skipped": 0, "scored": 0, "total": pending_count, "already": 0}
 
         # Step 3: 重载本地评论、归一化、展平
         local_comments_map = list_comments_by_post_ids([post_id])

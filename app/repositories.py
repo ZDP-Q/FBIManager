@@ -542,6 +542,16 @@ def count_pending_comments(post_id: str) -> int:
     return row[0] if row else 0
 
 
+def get_oldest_pending_comment_time(post_id: str) -> str | None:
+    """Return the created_time of the oldest pending (unscreened) comment, or None."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT created_time FROM comments WHERE post_id = ? AND screened = 0 ORDER BY created_time ASC LIMIT 1",
+            (post_id,),
+        ).fetchone()
+    return row[0] if row else None
+
+
 def list_pending_comments(post_id: str) -> list[dict[str, Any]]:
     """Return flat list of pending comments with id, author_name, author_id, message."""
     with get_connection() as connection:
