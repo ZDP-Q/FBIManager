@@ -170,10 +170,6 @@ async function checkOngoingSync() {
         if (btnInc) btnInc.disabled = true;
         if (btnFull) btnFull.disabled = true;
     }
-        }
-    } catch (err) {
-        console.error('Failed to check sync status:', err);
-    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -540,7 +540,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 停止同步
     document.getElementById('btn-stop-sync')?.addEventListener('click', async () => {
-        if (currentEventSource) {
         if (syncProgress) {
             syncProgress.cancel();
             syncProgress = null;
