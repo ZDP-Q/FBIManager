@@ -430,6 +430,10 @@ async function doSync(limit, since, until, allPosts = false, syncComments = true
     if (since) params.append('since', since);
     if (until) params.append('until', until);
 
+    // Fire-and-forget: trigger the sync endpoint to start the background worker
+    fetch(`/api/sync/stream?${params.toString()}`).catch(() => {});
+
+    // Use polling to track progress (more reliable than SSE in browsers with many connections)
     syncProgress = new TaskProgress({
         taskId: 'post_sync',
         container: '#sync-progress-container',
@@ -450,7 +454,7 @@ async function doSync(limit, since, until, allPosts = false, syncComments = true
             updateProgress(data.percent ?? 0, data.msg ?? '');
         },
     });
-    syncProgress.startSSE(`/api/sync/stream?${params.toString()}`);
+    syncProgress.startPolling(2000);
 }
 
 function setSyncButtonsDisabled(disabled) {
