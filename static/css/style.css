@@ -687,6 +687,8 @@ textarea { resize: vertical; min-height: 80px; }
 .comment-author    { font-size: 12px; font-weight: 600; color: var(--text); }
 .comment-time      { font-size: 11px; color: var(--muted); margin-left: 6px; }
 .comment-text      { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; word-break: break-word; }
+.comment-attachment-img { margin: 6px 0 0; max-width: 200px; max-height: 200px; border-radius: 8px; cursor: pointer; object-fit: contain; }
+.comment-attachment-img:hover { opacity: 0.85; }
 
 .comment-actions-row {
     padding: 0 12px 8px 50px;

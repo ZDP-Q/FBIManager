@@ -74,13 +74,28 @@ function renderComment(comment, container, depth) {
     
     const avatarChar = (comment.author_name || '?')[0].toUpperCase();
     
+    // Build message display: show image if attachment exists, strip placeholder text
+    let messageHtml = '';
+    const msg = comment.message || '';
+    if (comment.has_attachment) {
+        const imgUrl = `/api/attachments/${comment.id}`;
+        messageHtml = `<img src="${imgUrl}" class="comment-attachment-img" loading="lazy" onerror="this.style.display='none'" />`;
+        // Show message text only if it's not a placeholder like [animated_image_share]
+        const cleanMsg = msg.replace(/^\[(?:animated_image_share|photo|sticker)(?::\s*[^\]]+)?\]\s*/, '').trim();
+        if (cleanMsg) {
+            messageHtml += `<p class="comment-text">${cleanMsg}</p>`;
+        }
+    } else {
+        messageHtml = `<p class="comment-text">${msg || '（空）'}</p>`;
+    }
+
     item.innerHTML = `
         <div class="comment-top">
             <div class="comment-avatar">${avatarChar}</div>
             <div class="comment-body">
                 <span class="comment-author">${comment.author_name || '匿名用户'}</span>
                 <span class="comment-time">${comment.created_time || ''}</span>
-                <p class="comment-text">${comment.message || '（空）'}</p>
+                ${messageHtml}
             </div>
         </div>
         <div class="comment-actions-row">

@@ -417,6 +417,28 @@ async def get_post_comments(post_id: str):
     return comments_dict.get(post_id, [])
 
 
+@router.get("/attachments/{comment_id}")
+async def get_attachment_image(comment_id: str):
+    """Serve attachment image for a comment as binary response."""
+    from app.repositories import get_comment_attachments
+    from fastapi.responses import Response
+
+    attachments = get_comment_attachments(comment_id)
+    if not attachments:
+        raise HTTPException(status_code=404, detail="未找到附件")
+
+    att = attachments[0]
+    data = att.get("data")
+    if not data:
+        raise HTTPException(status_code=404, detail="附件数据为空")
+
+    media_type = att.get("media_type", "")
+    # All compressible types are stored as WebP
+    content_type = "image/webp" if media_type in ("sticker", "photo", "animated_image_share") else "application/octet-stream"
+
+    return Response(content=data, media_type=content_type)
+
+
 @router.post("/comments/{comment_id}/reply")
 async def create_reply(comment_id: str, payload: ReplyPayload):
     config = load_config()

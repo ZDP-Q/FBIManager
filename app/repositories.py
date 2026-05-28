@@ -476,9 +476,22 @@ def list_comments_by_post_ids(post_ids: list[str]) -> dict[str, list[dict[str, A
     comments_by_post: dict[str, list[dict[str, Any]]] = {post_id: [] for post_id in post_ids}
     comment_map: dict[str, dict[str, Any]] = {}
 
+    # Batch check which comments have attachments
+    comment_ids = [row["id"] for row in rows]
+    ids_with_attachments: set[str] = set()
+    if comment_ids:
+        id_placeholders = ",".join("?" for _ in comment_ids)
+        with get_connection() as conn:
+            att_rows = conn.execute(
+                f"SELECT DISTINCT comment_id FROM comment_attachments WHERE comment_id IN ({id_placeholders})",
+                comment_ids,
+            ).fetchall()
+            ids_with_attachments = {r["comment_id"] for r in att_rows}
+
     for row in rows:
         item = dict(row)
         item["replies"] = []
+        item["has_attachment"] = item["id"] in ids_with_attachments
         comment_map[item["id"]] = item
 
     for item in comment_map.values():
