@@ -314,11 +314,20 @@ class FacebookService:
         if url:
             return (media_type, url)
 
-        # Video
-        video = media.get("source", {})
-        url = (video.get("src") or "").strip()
-        if url:
-            return (media_type, url)
+        # Video — media.source can be a dict with "src" or a plain URL string
+        source = media.get("source")
+        if isinstance(source, str) and source.strip():
+            return (media_type, source.strip())
+        elif isinstance(source, dict):
+            url = (source.get("src") or "").strip()
+            if url:
+                return (media_type, url)
+
+        # Fallback: for animated_image_share, try target.url (external GIF link)
+        if media_type == "animated_image_share":
+            target_url = (attachment.get("target", {}).get("url") or "").strip()
+            if target_url:
+                return (media_type, target_url)
 
         return (media_type, "") if media_type else None
 
