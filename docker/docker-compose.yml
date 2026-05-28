@@ -12,8 +12,8 @@ services:
       - http_proxy=
       - https_proxy=
       - no_proxy=
-      - PUSH_URL=
-      - PUSH_TOKEN=
+      - PUSH_URL=https://manager.banlv-ai.com/api/schedule
+      - PUSH_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcmFkbWluIiwiZXhwIjoxODEwOTcwNDg3fQ.duPk17XOMk5kVjn8gqkuL3Vhp25bsCByVHS7BfecsIU
     volumes:
       # 持久化数据库
       - ../data:/app/data
