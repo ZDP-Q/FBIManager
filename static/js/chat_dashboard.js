@@ -25,8 +25,10 @@ async function loadDashboard() {
 }
 
 function getAvatarHtml(user) {
+    const safeUrl = escapeHtml(user.avatar_url || '');
+    const safeName = escapeHtml(user.name || '');
     if (user.avatar_url) {
-        return `<img src="${user.avatar_url}" class="user-avatar" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        return `<img src="${safeUrl}" class="user-avatar" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                 <div class="user-avatar-fallback" style="display:none; background:${getAvatarColor(user.name)}">${getInitials(user.name)}</div>`;
     }
     return `<div class="user-avatar-fallback" style="background:${getAvatarColor(user.name)}">${getInitials(user.name)}</div>`;

@@ -62,7 +62,7 @@ async function loadComments(postId, listEl) {
         }
         listEl.setAttribute('data-loaded', 'true');
     } catch (e) {
-        listEl.innerHTML = `<div class="empty-state" style="padding:20px; color: var(--danger);"><p>${e.message}</p></div>`;
+        listEl.innerHTML = `<div class="empty-state" style="padding:20px; color: var(--danger);"><p>${escapeHtml(e.message)}</p></div>`;
     }
 }
 
@@ -73,7 +73,7 @@ function renderComment(comment, container, depth) {
     if (depth > 0) item.style.marginLeft = `${depth * 20}px`;
     
     const safeAuthor = escapeHtml(comment.author_name || '匿名用户');
-    const avatarChar = (comment.author_name || '?')[0].toUpperCase();
+    const avatarChar = escapeHtml((comment.author_name || '?')[0].toUpperCase());
 
     // Build message display: show image if attachment exists, strip placeholder text
     let messageHtml = '';
@@ -234,11 +234,7 @@ async function checkAnalyzingPosts() {
     }
 }
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
+// escapeHtml is defined in base.js as window.escapeHtml
 
 function renderAnalysisHTML(result) {
     let parsed = null;

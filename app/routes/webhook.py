@@ -44,13 +44,17 @@ async def handle_webhook(request: Request):
     # Verify webhook signature if app_secret is configured
     try:
         config = load_config()
-        if config.app_secret:
-            signature = request.headers.get("x-hub-signature-256", "")
-            if not _verify_webhook_signature(raw_body, signature, config.app_secret):
-                logger.warning("[webhook] 签名验证失败，拒绝请求")
-                return PlainTextResponse("签名验证失败", status_code=403)
-    except Exception:
-        pass  # No config yet — allow through for initial setup
+    except RuntimeError:
+        config = None  # No config yet — allow through for initial setup
+    except Exception as exc:
+        logger.error("[webhook] 加载配置失败: %s", exc)
+        return PlainTextResponse("服务暂时不可用", status_code=503)
+
+    if config and config.app_secret:
+        signature = request.headers.get("x-hub-signature-256", "")
+        if not _verify_webhook_signature(raw_body, signature, config.app_secret):
+            logger.warning("[webhook] 签名验证失败，拒绝请求")
+            return PlainTextResponse("签名验证失败", status_code=403)
 
     try:
         payload = json.loads(raw_body)

@@ -10,6 +10,28 @@ from app.database import get_connection
 logger = logging.getLogger("uvicorn.error")
 
 
+def _extract_other_user(row, page_id: str) -> dict[str, str]:
+    """Extract the non-page participant from a conversation row's participants_json."""
+    participants = []
+    try:
+        p_data = json.loads(row["participants_json"] or "{}")
+        participants = p_data.get("data", [])
+    except Exception as exc:
+        row_dict = dict(row) if not isinstance(row, dict) else row
+        logger.warning("[repos] Failed to parse participants_json for conv %s: %s", row_dict.get("conversation_id", row_dict.get("id", "?")), exc)
+
+    user_name = "未知用户"
+    user_id = ""
+    avatar_url = ""
+    for p in participants:
+        if str(p.get("id")) != page_id:
+            user_name = p.get("name", user_name)
+            user_id = str(p.get("id", ""))
+            avatar_url = p.get("picture", {}).get("data", {}).get("url", "")
+            break
+    return {"name": user_name, "user_id": user_id, "avatar_url": avatar_url}
+
+
 def upsert_page_conversation(
     conv_id: str,
     page_id: str,
@@ -194,19 +216,8 @@ def get_user_message_counts(page_id: str, limit: int = 50) -> list[dict[str, Any
 
     results = []
     for row in rows:
-        participants = []
-        try:
-            p_data = json.loads(row["participants_json"] or "{}")
-            participants = p_data.get("data", [])
-        except Exception as exc:
-            logger.warning("[repos] Failed to parse participants_json for conv %s: %s", row["conversation_id"], exc)
-
-        user_name = "未知用户"
-        for p in participants:
-            if str(p.get("id")) != page_id:
-                user_name = p.get("name", user_name)
-                break
-        results.append({"name": user_name, "value": row["msg_count"]})
+        user = _extract_other_user(row, page_id)
+        results.append({"name": user["name"], "value": row["msg_count"]})
     return results
 
 
@@ -325,21 +336,15 @@ def get_chat_detailed_stats(page_id: str) -> dict[str, Any]:
                     sorted_values.append(hist.get(day, 0))
             histograms[label] = {"labels": sorted_labels, "values": sorted_values}
 
-        def get_percentile_val(data: list[int], p: float) -> int:
-            if not data:
-                return 0
-            idx = int(len(data) * p)
-            return data[min(idx, len(data) - 1)]
-
         active_days_dist = {
             "max": max(user_active_days) if user_active_days else 0,
             "min": min(user_active_days) if user_active_days else 0,
             "avg": round(sum(user_active_days) / len(user_active_days), 1) if user_active_days else 0,
             "median": user_active_days[len(user_active_days) // 2] if user_active_days else 0,
-            "p99": get_percentile_val(user_active_days, 0.99),
-            "p95": get_percentile_val(user_active_days, 0.95),
-            "p90": get_percentile_val(user_active_days, 0.90),
-            "p80": get_percentile_val(user_active_days, 0.80),
+            "p99": get_percentile(user_active_days, 0.99),
+            "p95": get_percentile(user_active_days, 0.95),
+            "p90": get_percentile(user_active_days, 0.90),
+            "p80": get_percentile(user_active_days, 0.80),
         }
 
     return {
@@ -368,24 +373,9 @@ def get_user_ranking_stats(page_id: str, limit: int = 100) -> list[dict[str, Any
 
     results = []
     for row in rows:
-        participants = []
-        try:
-            p_data = json.loads(row["participants_json"] or "{}")
-            participants = p_data.get("data", [])
-        except Exception as exc:
-            logger.warning("[repos] Failed to parse participants_json for conv %s: %s", row["conversation_id"], exc)
-
-        user_name = "未知用户"
-        user_id = ""
-        avatar_url = ""
-        for p in participants:
-            if str(p.get("id")) != page_id:
-                user_name = p.get("name", user_name)
-                user_id = str(p.get("id", ""))
-                avatar_url = p.get("picture", {}).get("data", {}).get("url", "")
-                break
+        user = _extract_other_user(row, page_id)
         results.append({
-            "name": user_name, "user_id": user_id, "avatar_url": avatar_url,
+            "name": user["name"], "user_id": user["user_id"], "avatar_url": user["avatar_url"],
             "message_count": row["total_message_count"], "active_days": row["total_active_days"],
         })
     return results

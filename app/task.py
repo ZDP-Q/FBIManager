@@ -144,7 +144,17 @@ async def create_task_if_not_running(task_id: str, name: str) -> bool:
             return False
         create_task(task_id, name)
         update_task(task_id, status=STATUS_RUNNING)
+        # Clean up stale locks for completed tasks
+        _cleanup_stale_locks()
         return True
+
+
+def _cleanup_stale_locks() -> None:
+    """Remove locks for tasks that are no longer running."""
+    stale = [tid for tid, lock in _task_locks.items()
+             if not lock.locked() and not is_task_running(tid)]
+    for tid in stale:
+        _task_locks.pop(tid, None)
 
 
 def cleanup_tasks(older_than_hours: int = 24) -> int:

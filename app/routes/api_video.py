@@ -116,7 +116,7 @@ async def _do_analyze(post_id: str, force: bool, task_key: str):
 
 @router.post("/posts/{post_id}/analyze")
 async def analyze_post_video(post_id: str, force: bool = False):
-    from app.task import create_task, update_task as _ut, is_task_running, STATUS_SUCCESS as _S, STATUS_FAILED as _F
+    from app.task import create_task, update_task as _ut, STATUS_SUCCESS as _S, STATUS_FAILED as _F
 
     task_key = f"video_analysis_{post_id}"
 
@@ -124,6 +124,9 @@ async def analyze_post_video(post_id: str, force: bool = False):
         cached = get_video_analysis(post_id)
         if cached:
             return {"status": "success", "result": cached["content"], "cached": True}
+
+    create_task(task_key, f"视频分析 {post_id}")
+    _ut(task_key, status="running")
 
     try:
         result = await _do_analyze(post_id, force, task_key)

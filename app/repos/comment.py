@@ -273,31 +273,6 @@ def list_replied_for_post(post_id: str, limit: int = 20) -> list[dict[str, Any]]
 
 def upsert_comment(post_id: str, parent_comment_id: str | None, comment: dict[str, Any]) -> None:
     """Insert or update a single comment (used by monitor service for incremental updates)."""
-    author = comment.get("from", {})
-    message = _extract_comment_message(comment)
     with get_connection() as connection:
         with connection:
-            connection.execute(
-                """
-                INSERT INTO comments (id, post_id, parent_comment_id, message, author_name, author_id, created_time, raw_json, screened, synced_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
-                ON CONFLICT(id) DO UPDATE SET
-                    message = excluded.message,
-                    author_name = excluded.author_name,
-                    author_id = excluded.author_id,
-                    raw_json = excluded.raw_json,
-                    synced_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    comment["id"],
-                    post_id,
-                    parent_comment_id,
-                    message,
-                    author.get("name", "匿名用户"),
-                    author.get("id", ""),
-                    comment.get("created_time", ""),
-                    json.dumps(comment, ensure_ascii=False),
-                ),
-            )
-    for reply in comment.get("replies", {}).get("data", []):
-        upsert_comment(post_id, comment["id"], reply)
+            _insert_comment(connection, post_id, parent_comment_id, comment)
