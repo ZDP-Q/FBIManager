@@ -82,7 +82,7 @@ def create_app() -> FastAPI:
                 return RedirectResponse(url=f"/login?next={next_path}", status_code=303)
 
             # 登录态下对敏感写操作做同源校验，降低 CSRF 风险
-            if path.startswith("/api") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"} and (path.startswith("/api") or path == "/logout"):
                 if not origin_base and host:
                     origin_base = f"{forwarded_proto}://{host}"
 

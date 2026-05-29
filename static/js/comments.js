@@ -72,8 +72,9 @@ function renderComment(comment, container, depth) {
     item.id = `ci-${comment.id}`;
     if (depth > 0) item.style.marginLeft = `${depth * 20}px`;
     
+    const safeAuthor = escapeHtml(comment.author_name || '匿名用户');
     const avatarChar = (comment.author_name || '?')[0].toUpperCase();
-    
+
     // Build message display: show image if attachment exists, strip placeholder text
     let messageHtml = '';
     const msg = comment.message || '';
@@ -83,18 +84,18 @@ function renderComment(comment, container, depth) {
         // Show message text only if it's not a placeholder like [animated_image_share]
         const cleanMsg = msg.replace(/^\[(?:animated_image_share|photo|sticker)(?::\s*[^\]]+)?\]\s*/, '').trim();
         if (cleanMsg) {
-            messageHtml += `<p class="comment-text">${cleanMsg}</p>`;
+            messageHtml += `<p class="comment-text">${escapeHtml(cleanMsg)}</p>`;
         }
     } else {
-        messageHtml = `<p class="comment-text">${msg || '（空）'}</p>`;
+        messageHtml = `<p class="comment-text">${escapeHtml(msg) || '（空）'}</p>`;
     }
 
     item.innerHTML = `
         <div class="comment-top">
             <div class="comment-avatar">${avatarChar}</div>
             <div class="comment-body">
-                <span class="comment-author">${comment.author_name || '匿名用户'}</span>
-                <span class="comment-time">${comment.created_time || ''}</span>
+                <span class="comment-author">${safeAuthor}</span>
+                <span class="comment-time">${escapeHtml(comment.created_time || '')}</span>
                 ${messageHtml}
             </div>
         </div>

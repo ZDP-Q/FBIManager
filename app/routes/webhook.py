@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import logging
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -8,6 +13,15 @@ from app.repositories import get_account_by_verify_token
 from app.services.webhook import WebhookService
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
+
+
+def _verify_webhook_signature(body: bytes, signature: str, app_secret: str) -> bool:
+    """Verify Facebook X-Hub-Signature-256 header."""
+    if not app_secret or not signature:
+        return bool(not app_secret)  # Skip verification if no secret configured
+    expected = "sha256=" + hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 @router.get("/webhook")
@@ -25,8 +39,21 @@ async def verify_webhook(request: Request):
 
 @router.post("/webhook")
 async def handle_webhook(request: Request):
+    raw_body = await request.body()
+
+    # Verify webhook signature if app_secret is configured
     try:
-        payload = await request.json()
+        config = load_config()
+        if config.app_secret:
+            signature = request.headers.get("x-hub-signature-256", "")
+            if not _verify_webhook_signature(raw_body, signature, config.app_secret):
+                logger.warning("[webhook] 签名验证失败，拒绝请求")
+                return PlainTextResponse("签名验证失败", status_code=403)
+    except Exception:
+        pass  # No config yet — allow through for initial setup
+
+    try:
+        payload = json.loads(raw_body)
     except Exception:
         return JSONResponse(
             {"status": "success", "summary": {"processed": 0, "replied": 0, "skipped": 0}},

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.config import AppConfig
+
+logger = logging.getLogger("uvicorn.error")
 from app.repositories import get_page_profile, get_video_analysis, parse_video_analysis_content, list_replied_for_post
 from app.services.ai_reply import AIReplyService
 from app.services.facebook import FacebookService
@@ -84,7 +87,8 @@ class WebhookService:
                     )
                     await self.facebook.send_reply(comment_id, ai_text)
                     replied += 1
-                except Exception:
+                except Exception as exc:
+                    logger.warning("[webhook] 回复评论 %s 失败: %s", comment_id, exc)
                     skipped += 1
 
         return {"processed": processed, "replied": replied, "skipped": skipped}

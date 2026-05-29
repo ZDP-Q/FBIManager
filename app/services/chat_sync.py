@@ -16,7 +16,7 @@ from app.repositories import (
     check_message_exists
 )
 
-from app.task import create_task, update_task, get_task, is_task_running, STATUS_SUCCESS, STATUS_FAILED
+from app.task import create_task_if_not_running, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -38,8 +38,8 @@ class ChatSyncService:
 
     async def sync_all_chats(self, page_id: str, full_sync: bool = False) -> AsyncGenerator[str, None]:
         """Progress generator for SSE. It starts the background worker if not already running."""
-        if not is_task_running("chat_sync"):
-            create_task("chat_sync", "聊天同步")
+        created = await create_task_if_not_running("chat_sync", "聊天同步")
+        if created:
             asyncio.create_task(self._run_sync_worker(page_id, full_sync))
             await asyncio.sleep(0.1)
 
@@ -59,7 +59,7 @@ class ChatSyncService:
                 yield "event: progress\ndata: " + json.dumps(legacy) + "\n\n"
                 last_update = updated
 
-            if task["status"] in (STATUS_SUCCESS, STATUS_FAILED):
+            if task["status"] in (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED):
                 break
             await asyncio.sleep(1)
 

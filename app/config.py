@@ -25,6 +25,7 @@ class AppConfig:
     video_api_key: str = ""
     video_model: str = ""
     prompt_template: str = "reply_prompt.j2"
+    app_secret: str = ""  # Facebook App Secret for webhook signature verification
 
     @property
     def graph_base_url(self) -> str:
@@ -99,4 +100,5 @@ def load_config(*, account_id: int | None = None, page_id: str | None = None) ->
         video_api_key=str(model.get("video_api_key", "")),
         video_model=str(model.get("video_model", "")),
         prompt_template=prompt_template,
+        app_secret=str(model.get("app_secret", "") or ""),
     )

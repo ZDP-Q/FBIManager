@@ -372,6 +372,12 @@ def _migrate_schema(connection) -> None:
         """)
         _set_schema_version(connection, 11)
 
+    # v12: add app_secret to model_configs for webhook signature verification
+    if current < 12:
+        if not _column_exists(connection, "model_configs", "app_secret"):
+            connection.execute("ALTER TABLE model_configs ADD COLUMN app_secret TEXT NOT NULL DEFAULT ''")
+        _set_schema_version(connection, 12)
+
 
 def _seed_auto_monitor_config_if_needed() -> None:
     with get_connection() as connection:

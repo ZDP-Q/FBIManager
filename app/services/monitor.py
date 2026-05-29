@@ -50,6 +50,7 @@ class MonitorService:
     def __init__(self):
         self._task: asyncio.Task[None] | None = None
         self._running_monitors: set[int] = set()
+        self._spawned_tasks: set[asyncio.Task] = set()
         self._semaphore = asyncio.Semaphore(_MAX_CONCURRENT_MONITORS)
 
     async def start(self) -> None:
@@ -63,6 +64,13 @@ class MonitorService:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        # Cancel all spawned monitor sub-tasks
+        for t in self._spawned_tasks:
+            if not t.done():
+                t.cancel()
+        if self._spawned_tasks:
+            await asyncio.gather(*self._spawned_tasks, return_exceptions=True)
+        self._spawned_tasks.clear()
         logger.info("[monitor] background scheduler stopped")
 
     async def run_monitor_now(self, monitor_id: int) -> dict[str, Any]:
@@ -115,10 +123,12 @@ class MonitorService:
                 except ValueError:
                     pass  # bad timestamp, run anyway
 
-            asyncio.create_task(
+            t = asyncio.create_task(
                 self._safe_execute(monitor),
                 name=f"monitor-{monitor_id}",
             )
+            self._spawned_tasks.add(t)
+            t.add_done_callback(self._spawned_tasks.discard)
 
     async def _check_auto_monitor_schedules(self) -> None:
         config = get_auto_monitor_config()
@@ -559,7 +569,8 @@ class MonitorService:
 
             try:
                 unmark_replied(comment_id)
-            except Exception:
+            except Exception as exc:
+                logger.warning("[monitor] unmark_replied failed for %s: %s", comment_id, exc)
                 return 0, 0, 1
 
         if await self._comment_has_page_reply(comment=comment, page_id=canonical_page_id, facebook=facebook):

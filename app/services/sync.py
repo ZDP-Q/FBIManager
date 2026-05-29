@@ -8,7 +8,7 @@ from app.config import AppConfig
 from app.repositories import replace_comments_for_post, upsert_page_profile, upsert_post, list_posts, get_canonical_page_id
 from app.services.facebook import FacebookService
 from app.services.attachments import download_comment_attachments
-from app.task import create_task, update_task, get_task, is_task_running, STATUS_SUCCESS, STATUS_FAILED, STATUS_RUNNING
+from app.task import create_task_if_not_running, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED, STATUS_RUNNING
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -30,9 +30,9 @@ class SyncService:
     async def sync_all_gen(self, *, post_limit: int = 6, since: str = "", until: str = "", all_posts: bool = False, sync_comments: bool = True):
         """Progress generator for SSE. It starts the background worker if not already running."""
         logger.info("[sync_all_gen] called with post_limit=%s, all_posts=%s, sync_comments=%s", post_limit, all_posts, sync_comments)
-        if not is_task_running("post_sync"):
+        created = await create_task_if_not_running("post_sync", "帖子同步")
+        if created:
             logger.info("[sync_all_gen] creating task and spawning worker")
-            create_task("post_sync", "帖子同步")
             asyncio.create_task(self._run_sync_worker(post_limit, since, until, all_posts, sync_comments))
             await asyncio.sleep(0.1)
 
@@ -50,7 +50,7 @@ class SyncService:
                        "done": task["status"] in (STATUS_SUCCESS, STATUS_FAILED), "updated_at": updated}
                 last_update = updated
 
-            if task["status"] in (STATUS_SUCCESS, STATUS_FAILED):
+            if task["status"] in (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED):
                 break
             await asyncio.sleep(1)
 
@@ -103,7 +103,7 @@ class SyncService:
             for i in range(0, total_posts, batch_size):
                 # 检查是否被用户手动停止
                 task = get_task("post_sync")
-                if task and task["status"] in (STATUS_SUCCESS, STATUS_FAILED):
+                if task and task["status"] in (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED):
                     logger.info("[sync] sync stopped by user")
                     return
 

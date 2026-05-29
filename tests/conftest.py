@@ -56,42 +56,9 @@ def setup_db():
     with app.database.get_connection() as conn:
         conn.executescript(app.database.SCHEMA_SQL)
 
-    # Run migrations
-    migrations = [
-        "ALTER TABLE posts ADD COLUMN type TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE posts ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE model_configs ADD COLUMN prompt_template TEXT NOT NULL DEFAULT 'reply_prompt.j2'",
-        "ALTER TABLE auto_monitor_schedules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
-        "ALTER TABLE model_configs ADD COLUMN video_ai_model TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE video_analyses ADD COLUMN pushed_at TEXT DEFAULT NULL",
-        "ALTER TABLE model_configs ADD COLUMN reply_api_base_url TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE model_configs ADD COLUMN reply_api_key TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE model_configs ADD COLUMN reply_model TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE model_configs ADD COLUMN video_api_base_url TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE model_configs ADD COLUMN video_api_key TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE model_configs ADD COLUMN video_model TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE comments ADD COLUMN screened INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE comment_attachments ADD COLUMN data BLOB",
-    ]
+    # Use the same migration logic as production
     with app.database.get_connection() as conn:
-        for sql in migrations:
-            try:
-                conn.execute(sql)
-            except Exception:
-                pass
-        try:
-            conn.execute(
-                "UPDATE model_configs SET "
-                "reply_api_base_url = COALESCE(NULLIF(ai_api_base_url, ''), reply_api_base_url), "
-                "reply_api_key = COALESCE(NULLIF(ai_api_key, ''), reply_api_key), "
-                "reply_model = COALESCE(NULLIF(ai_model, ''), reply_model), "
-                "video_model = COALESCE(NULLIF(video_ai_model, ''), video_model), "
-                "video_api_base_url = COALESCE(NULLIF(ai_api_base_url, ''), video_api_base_url), "
-                "video_api_key = COALESCE(NULLIF(ai_api_key, ''), video_api_key) "
-                "WHERE reply_api_base_url = '' OR reply_api_key = '' OR reply_model = ''"
-            )
-        except Exception:
-            pass
+        app.database._migrate_schema(conn)
 
     app.database._seed_auto_monitor_config_if_needed()
     app.database._seed_admin_auth_if_needed()

@@ -41,7 +41,8 @@ function renderAccountSelect() {
     if (!select) return;
     const options = settingsState.accounts.map((a) => {
         const activeMark = Number(a.id) === Number(settingsState.activeAccountId) ? ' (当前)' : '';
-        return `<option value="${a.id}">${a.name || `账号 ${a.page_id}`}${activeMark}</option>`;
+        const label = escapeHtml(a.name || `账号 ${a.page_id}`);
+        return `<option value="${a.id}">${label}${activeMark}</option>`;
     }).join('');
     select.innerHTML = options || '<option value="">暂无账号</option>';
 

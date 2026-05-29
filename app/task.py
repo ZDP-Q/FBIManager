@@ -5,6 +5,7 @@ All long-running operations (sync, chat sync, video analysis) should use this mo
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -17,6 +18,18 @@ logger = logging.getLogger("uvicorn.error")
 
 # Status constants
 STATUS_PENDING = "pending"
+
+# Lock for atomic check-and-create operations (prevents TOCTOU race conditions)
+_task_locks: dict[str, asyncio.Lock] = {}
+_global_lock = asyncio.Lock()
+
+
+async def _get_task_lock(task_id: str) -> asyncio.Lock:
+    """Get or create a per-task lock for atomic operations."""
+    async with _global_lock:
+        if task_id not in _task_locks:
+            _task_locks[task_id] = asyncio.Lock()
+        return _task_locks[task_id]
 STATUS_RUNNING = "running"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
@@ -121,6 +134,17 @@ def is_task_running(task_id: str) -> bool:
     """Check if a task is currently running."""
     task = get_task(task_id)
     return task is not None and task["status"] == STATUS_RUNNING
+
+
+async def create_task_if_not_running(task_id: str, name: str) -> bool:
+    """Atomically check if task is running and create it if not. Returns True if created."""
+    lock = await _get_task_lock(task_id)
+    async with lock:
+        if is_task_running(task_id):
+            return False
+        create_task(task_id, name)
+        update_task(task_id, status=STATUS_RUNNING)
+        return True
 
 
 def cleanup_tasks(older_than_hours: int = 24) -> int:

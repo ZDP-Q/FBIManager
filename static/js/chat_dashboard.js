@@ -78,8 +78,8 @@ async function loadUserRanking() {
                     <div class="user-info">
                         ${getAvatarHtml(user)}
                         <div style="display: flex; flex-direction: column;">
-                            <span style="font-weight: 600;">${user.name || '未知用户'}</span>
-                            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ${user.user_id}</span>
+                            <span style="font-weight: 600;">${escapeHtml(user.name || '未知用户')}</span>
+                            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ${escapeHtml(user.user_id)}</span>
                         </div>
                     </div>
                 </td>
@@ -127,7 +127,9 @@ function startSync(isFull = false) {
             }
         },
     });
-    chatSyncProgress.startSSE(`/api/chats/sync?full=${isFull ? 'true' : 'false'}`, { eventName: 'progress' });
+    // Trigger sync via POST, then poll for progress
+    fetch(`/api/chats/sync?full=${isFull ? 'true' : 'false'}`, { method: 'POST' }).catch(() => {});
+    chatSyncProgress.startPolling();
 }
 
 document.getElementById('btn-sync-chats')?.addEventListener('click', () => startSync(false));
