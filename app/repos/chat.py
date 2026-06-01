@@ -15,7 +15,7 @@ def _extract_other_user(row, page_id: str) -> dict[str, str]:
     participants = []
     try:
         p_data = json.loads(row["participants_json"] or "{}")
-        participants = p_data.get("data", [])
+        participants = p_data.get("data") or []
     except Exception as exc:
         row_dict = dict(row) if not isinstance(row, dict) else row
         logger.warning("[repos] Failed to parse participants_json for conv %s: %s", row_dict.get("conversation_id", row_dict.get("id", "?")), exc)

@@ -191,8 +191,10 @@ async def batch_analyze_videos():
         update_task(per_video_key, status="running")
         try:
             await _do_analyze(post["id"], True, per_video_key)
+            update_task(per_video_key, status=STATUS_SUCCESS, progress=100)
             results["success"] += 1
         except Exception as exc:
+            update_task(per_video_key, status=STATUS_FAILED, error=str(exc)[:200])
             results["failed"] += 1
             results["errors"].append({"post_id": post["id"], "error": str(exc)})
             logger.error("[batch-analyze] Failed for post=%s: %s", post["id"], exc)

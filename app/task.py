@@ -144,11 +144,13 @@ async def create_task_if_not_running(task_id: str, name: str) -> bool:
             return False
         create_task(task_id, name)
         update_task(task_id, status=STATUS_RUNNING)
+        # Periodically clean up stale locks (safe: we hold task-specific lock, not _global_lock)
+        await _cleanup_stale_locks_internal()
         return True
 
 
-async def cleanup_stale_locks() -> None:
-    """Remove locks for tasks that are no longer running. Thread-safe via _global_lock."""
+async def _cleanup_stale_locks_internal() -> None:
+    """Remove locks for tasks that are no longer running. Caller must not hold _global_lock."""
     async with _global_lock:
         stale = [tid for tid, lock in _task_locks.items()
                  if not lock.locked() and not is_task_running(tid)]
@@ -181,6 +183,9 @@ async def task_runner(task_id: str, name: str):
     try:
         yield
         update_task(task_id, status=STATUS_SUCCESS, progress=100)
-    except BaseException as exc:
+    except asyncio.CancelledError:
+        update_task(task_id, status=STATUS_CANCELED, message="任务被取消")
+        raise
+    except Exception as exc:
         update_task(task_id, status=STATUS_FAILED, error=str(exc)[:500])
         raise

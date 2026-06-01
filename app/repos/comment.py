@@ -61,7 +61,7 @@ def _insert_comment(connection, post_id: str, parent_comment_id: str | None, com
             json.dumps(comment, ensure_ascii=False),
         ),
     )
-    for reply in (comment.get("replies") or {}).get("data", []):
+    for reply in (comment.get("replies") or {}).get("data") or []:
         _insert_comment(connection, post_id, comment["id"], reply)
 
 
