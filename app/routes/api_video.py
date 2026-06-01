@@ -186,8 +186,11 @@ async def batch_analyze_videos():
         pct = int((i / total) * 100)
         update_task(task_key, message=f"正在分析第 {i+1}/{total} 个视频...", progress=pct,
                     result={"total": total, "completed": i})
+        per_video_key = f"video_analysis_{post['id']}"
+        create_task(per_video_key, f"视频分析 {post['id']}")
+        update_task(per_video_key, status="running")
         try:
-            await _do_analyze(post["id"], True, f"video_analysis_{post['id']}")
+            await _do_analyze(post["id"], True, per_video_key)
             results["success"] += 1
         except Exception as exc:
             results["failed"] += 1

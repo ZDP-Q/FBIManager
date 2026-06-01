@@ -18,7 +18,7 @@ def _extract_comment_message(comment: dict[str, Any]) -> str:
     story = (comment.get("story") or "").strip()
     if story:
         return f"[{story}]"
-    attachment = comment.get("attachment", {})
+    attachment = comment.get("attachment") or {}
     if attachment:
         att_type = (attachment.get("type") or "").lower()
         media = attachment.get("media", {})
@@ -33,7 +33,7 @@ def _extract_comment_message(comment: dict[str, Any]) -> str:
 
 
 def _insert_comment(connection, post_id: str, parent_comment_id: str | None, comment: dict[str, Any]) -> None:
-    author = comment.get("from", {})
+    author = comment.get("from") or {}
     message = _extract_comment_message(comment)
     if parent_comment_id is None:
         parent_data = comment.get("parent")
@@ -61,7 +61,7 @@ def _insert_comment(connection, post_id: str, parent_comment_id: str | None, com
             json.dumps(comment, ensure_ascii=False),
         ),
     )
-    for reply in comment.get("replies", {}).get("data", []):
+    for reply in (comment.get("replies") or {}).get("data", []):
         _insert_comment(connection, post_id, comment["id"], reply)
 
 

@@ -75,7 +75,7 @@ async def get_settings():
     model = get_model_config() or {
         "reply_api_base_url": "", "reply_api_key": "", "reply_model": "",
         "video_api_base_url": "", "video_api_key": "", "video_model": "",
-        "app_secret": "",
+        "prompt_template": "reply_prompt.j2", "app_secret": "",
     }
     return {"accounts": accounts, "active_account_id": active["id"] if active else None, "model": model}
 

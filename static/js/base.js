@@ -38,10 +38,7 @@ window.escapeHtml = function(str) {
 
             accountSelect.disabled = false;
             accountSelect.innerHTML = accounts.map((a) => {
-                const safeName = String(a.name || `账号 ${a.page_id || a.id}`)
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
+                const safeName = escapeHtml(a.name || `账号 ${a.page_id || a.id}`);
                 const selected = Number(a.id) === Number(activeId) ? 'selected' : '';
                 return `<option value="${a.id}" ${selected}>${safeName}</option>`;
             }).join('');

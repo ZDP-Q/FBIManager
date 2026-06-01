@@ -82,7 +82,7 @@ def update_task(
         sets.append("status = ?")
         params.append(status)
         if status == STATUS_RUNNING:
-            sets.append("started_at = ?")
+            sets.append("started_at = COALESCE(started_at, ?)")
             params.append(_now())
         if status in _TERMINAL_STATUSES:
             sets.append("ended_at = ?")
@@ -144,17 +144,16 @@ async def create_task_if_not_running(task_id: str, name: str) -> bool:
             return False
         create_task(task_id, name)
         update_task(task_id, status=STATUS_RUNNING)
-        # Clean up stale locks for completed tasks
-        _cleanup_stale_locks()
         return True
 
 
-def _cleanup_stale_locks() -> None:
-    """Remove locks for tasks that are no longer running."""
-    stale = [tid for tid, lock in _task_locks.items()
-             if not lock.locked() and not is_task_running(tid)]
-    for tid in stale:
-        _task_locks.pop(tid, None)
+async def cleanup_stale_locks() -> None:
+    """Remove locks for tasks that are no longer running. Thread-safe via _global_lock."""
+    async with _global_lock:
+        stale = [tid for tid, lock in _task_locks.items()
+                 if not lock.locked() and not is_task_running(tid)]
+        for tid in stale:
+            _task_locks.pop(tid, None)
 
 
 def cleanup_tasks(older_than_hours: int = 24) -> int:
@@ -182,6 +181,6 @@ async def task_runner(task_id: str, name: str):
     try:
         yield
         update_task(task_id, status=STATUS_SUCCESS, progress=100)
-    except Exception as exc:
+    except BaseException as exc:
         update_task(task_id, status=STATUS_FAILED, error=str(exc)[:500])
         raise

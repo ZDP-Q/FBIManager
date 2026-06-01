@@ -29,9 +29,9 @@ function getAvatarHtml(user) {
     const safeName = escapeHtml(user.name || '');
     if (user.avatar_url) {
         return `<img src="${safeUrl}" class="user-avatar" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                <div class="user-avatar-fallback" style="display:none; background:${getAvatarColor(user.name)}">${getInitials(user.name)}</div>`;
+                <div class="user-avatar-fallback" style="display:none; background:${getAvatarColor(user.name)}">${escapeHtml(getInitials(user.name))}</div>`;
     }
-    return `<div class="user-avatar-fallback" style="background:${getAvatarColor(user.name)}">${getInitials(user.name)}</div>`;
+    return `<div class="user-avatar-fallback" style="background:${getAvatarColor(user.name)}">${escapeHtml(getInitials(user.name))}</div>`;
 }
 
 function getInitials(name) {

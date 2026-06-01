@@ -210,7 +210,7 @@ async function checkAnalyzingPosts() {
         const resultEl = document.getElementById(`analysis-${postId}`);
         if (resultEl) {
             resultEl.style.display = 'block';
-            resultEl.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${data.msg || '正在分析视频...'}</div>`;
+            resultEl.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${escapeHtml(data.msg || '正在分析视频...')}</div>`;
         }
         const btn = document.getElementById(`btn-analyze-${postId}`);
         if (btn) {
@@ -227,7 +227,7 @@ async function checkAnalyzingPosts() {
                     location.reload();
                 } else {
                     const el = document.getElementById(`analysis-${postId}`);
-                    if (el) el.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${d.msg || '正在分析视频...'}</div>`;
+                    if (el) el.innerHTML = `<div style="padding:12px; color: var(--text-muted);">${escapeHtml(d.msg || '正在分析视频...')}</div>`;
                 }
             } catch { clearInterval(timer); }
         }, 2000);

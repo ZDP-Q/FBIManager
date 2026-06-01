@@ -24,10 +24,11 @@ def _extract_other_user(row, page_id: str) -> dict[str, str]:
     user_id = ""
     avatar_url = ""
     for p in participants:
-        if str(p.get("id")) != page_id:
+        pid = p.get("id")
+        if pid is not None and str(pid) != page_id:
             user_name = p.get("name", user_name)
-            user_id = str(p.get("id", ""))
-            avatar_url = p.get("picture", {}).get("data", {}).get("url", "")
+            user_id = str(pid)
+            avatar_url = (p.get("picture") or {}).get("data", {}).get("url", "")
             break
     return {"name": user_name, "user_id": user_id, "avatar_url": avatar_url}
 
