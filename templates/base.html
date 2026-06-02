@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Facebook 互动管理{% endblock %} — FBManager</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=code-review-2">
+    <link rel="stylesheet" href="/static/css/style.css?v=sidebar-v1">
     {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -54,7 +54,10 @@
             <label for="sidebar-account-select" class="sidebar-field-label">当前主页</label>
             <select id="sidebar-account-select" class="sidebar-select"></select>
             <form method="post" action="/logout">
-                <button type="submit" class="btn btn-secondary btn-sm sidebar-logout">退出登录</button>
+                <button type="submit" class="btn btn-secondary btn-sm sidebar-logout">
+                    <svg class="nav-icon logout-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M6 13H2V3h4v1.5H3.5v8H6V13zm3.5-5.5V6H13l-3-3-3 3h3.5v1.5H7L10 11l3-3H9.5z"/></svg>
+                    <span class="logout-text">退出登录</span>
+                </button>
             </form>
             <div class="sidebar-version">FBIManager v2.0</div>
         </div>
@@ -66,7 +69,7 @@
         </div>
     </div>
 </div>
-<script src="/static/js/base.js?v=code-review-2"></script>
+<script src="/static/js/base.js?v=sidebar-v1"></script>
 <script src="/static/js/task-progress.js"></script>
 {% block scripts %}{% endblock %}
 </body>
