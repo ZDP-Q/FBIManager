@@ -131,9 +131,26 @@ def cancel_task(task_id: str) -> bool:
 
 
 def is_task_running(task_id: str) -> bool:
-    """Check if a task is currently running."""
+    """Check if a task is currently running. Treats stale tasks (no update for 10+ minutes) as dead."""
     task = get_task(task_id)
-    return task is not None and task["status"] == STATUS_RUNNING
+    if task is None or task["status"] != STATUS_RUNNING:
+        return False
+    # Detect stale tasks: if updated_at is more than 10 minutes ago, the worker is likely dead
+    updated_at = task.get("updated_at", "")
+    if updated_at:
+        try:
+            from datetime import UTC, datetime
+            last_update = datetime.fromisoformat(updated_at)
+            if last_update.tzinfo is None:
+                last_update = last_update.replace(tzinfo=UTC)
+            elapsed = (datetime.now(UTC) - last_update).total_seconds()
+            if elapsed > 600:  # 10 minutes
+                logger.warning("[task] Task %s is stale (no update for %ds), marking as failed", task_id, int(elapsed))
+                update_task(task_id, status=STATUS_FAILED, error=f"任务超时：{int(elapsed)} 秒无响应", message="任务超时已自动终止")
+                return False
+        except Exception:
+            pass
+    return True
 
 
 async def create_task_if_not_running(task_id: str, name: str) -> bool:

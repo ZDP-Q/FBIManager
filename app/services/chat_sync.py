@@ -183,9 +183,18 @@ class ChatSyncService:
 
     async def _sync_messages_task(self, conv_id: str, full_sync: bool):
         async with self.semaphore:
-            msg_count = await self._sync_messages_for_conversation(conv_id, full_sync=full_sync)
-            self.messages_synced += msg_count
-            self.conversations_synced += 1
+            try:
+                msg_count = await asyncio.wait_for(
+                    self._sync_messages_for_conversation(conv_id, full_sync=full_sync),
+                    timeout=60
+                )
+                self.messages_synced += msg_count
+            except asyncio.TimeoutError:
+                logger.warning("[chat_sync] Timeout syncing conversation %s (60s), skipping", conv_id)
+            except Exception as e:
+                logger.warning("[chat_sync] Error syncing conversation %s: %s", conv_id, e)
+            finally:
+                self.conversations_synced += 1
 
     async def _sync_messages_for_conversation(self, conv_id: str, full_sync: bool) -> int:
         count = 0
