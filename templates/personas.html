@@ -47,5 +47,22 @@
     </div>
 </div>
 
+<!-- 模态框：编辑 -->
+<div id="modal-edit" class="modal-backdrop">
+    <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+            <h3 class="modal-title">编辑模板：<span id="edit-filename"></span></h3>
+            <button class="btn btn-ghost btn-icon" onclick="closeModal('modal-edit')" aria-label="关闭">✕</button>
+        </div>
+        <div class="modal-body">
+            <textarea id="edit-content" style="width: 100%; min-height: 500px; font-family: monospace; font-size: 13px; line-height: 1.6; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text); resize: vertical; tab-size: 4;"></textarea>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal('modal-edit')">取消</button>
+            <button class="btn btn-primary" id="btn-save-prompt" onclick="savePrompt()">保存</button>
+        </div>
+    </div>
+</div>
+
 <script src="/static/js/personas.js"></script>
 {% endblock %}

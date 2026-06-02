@@ -2,6 +2,7 @@ const alertEl = document.getElementById('personas-alert');
 const tbody = document.getElementById('personas-body');
 
 let promptsData = [];
+let editingFilename = '';
 
 function showAlert(msg, type = 'info') {
     alertEl.textContent = msg;
@@ -48,8 +49,9 @@ function renderTable() {
             <td>
                 <div class="actions">
                     <button class="btn btn-outline btn-sm" onclick="previewPrompt(${idx})">预览</button>
-                    ${!p.is_active 
-                        ? `<button class="btn btn-primary btn-sm" id="btn-act-${idx}" onclick="activatePrompt('${p.filename}', ${idx})">使用此人设</button>` 
+                    <button class="btn btn-outline btn-sm" onclick="editPrompt(${idx})">编辑</button>
+                    ${!p.is_active
+                        ? `<button class="btn btn-primary btn-sm" id="btn-act-${idx}" onclick="activatePrompt('${p.filename}', ${idx})">使用此人设</button>`
                         : `<button class="btn btn-primary btn-sm" disabled style="opacity:0.6;cursor:not-allowed;">使用中</button>`}
                 </div>
             </td>
@@ -63,6 +65,41 @@ function previewPrompt(idx) {
     document.getElementById('preview-filename').textContent = p.filename;
     document.getElementById('preview-content').textContent = p.content;
     openModal('modal-preview');
+}
+
+function editPrompt(idx) {
+    const p = promptsData[idx];
+    if (!p) return;
+    editingFilename = p.filename;
+    document.getElementById('edit-filename').textContent = p.filename;
+    document.getElementById('edit-content').value = p.content;
+    openModal('modal-edit');
+}
+
+async function savePrompt() {
+    const btn = document.getElementById('btn-save-prompt');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+    try {
+        const content = document.getElementById('edit-content').value;
+        const r = await fetch(`/api/prompts/${encodeURIComponent(editingFilename)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: editingFilename, content })
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.detail || '保存失败');
+        }
+        showAlert('模板已保存！', 'success');
+        closeModal('modal-edit');
+        await loadPrompts();
+    } catch (e) {
+        showAlert(e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '保存';
+    }
 }
 
 async function activatePrompt(filename, idx) {
@@ -88,5 +125,22 @@ async function activatePrompt(filename, idx) {
         }
     }
 }
+
+// Tab key support in editor textarea
+document.getElementById('edit-content')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const ta = e.target;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        ta.value = ta.value.substring(0, start) + '    ' + ta.value.substring(end);
+        ta.selectionStart = ta.selectionEnd = start + 4;
+    }
+    // Ctrl+S / Cmd+S to save
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        savePrompt();
+    }
+});
 
 document.addEventListener('DOMContentLoaded', loadPrompts);

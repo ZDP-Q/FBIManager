@@ -33,6 +33,11 @@ class ActivatePromptPayload(BaseModel):
     filename: str
 
 
+class SavePromptPayload(BaseModel):
+    filename: str
+    content: str
+
+
 @router.get("/posts/{post_id}/comments")
 async def get_post_comments(post_id: str):
     comments_dict = list_comments_by_post_ids([post_id])
@@ -144,6 +149,24 @@ async def activate_prompt_api(payload: ActivatePromptPayload):
         prompt_template=payload.filename.strip(),
     )
     return {"status": "success"}
+
+
+@router.put("/prompts/{filename}")
+async def save_prompt_api(filename: str, payload: SavePromptPayload):
+    import os
+    from app.config import PROJECT_ROOT
+    # Only allow editing existing .j2 files in the prompts directory
+    if not filename.endswith(".j2") or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="无效的文件名")
+    file_path = PROJECT_ROOT / "prompts" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="模板文件不存在")
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(payload.content)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"保存失败: {exc}") from exc
 
 
 @router.get("/posts")
