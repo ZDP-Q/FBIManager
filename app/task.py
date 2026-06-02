@@ -106,8 +106,31 @@ def update_task(
     return get_task(task_id)
 
 
+_STALE_THRESHOLD_SECONDS = 600  # 10 minutes
+
+
+def _auto_fail_if_stale(task_id: str, task_dict: dict[str, Any]) -> None:
+    """If a running task hasn't been updated in >10 min, mark it as failed in-place."""
+    updated_at = task_dict.get("updated_at", "")
+    if not updated_at:
+        return
+    try:
+        last_update = datetime.fromisoformat(updated_at)
+        if last_update.tzinfo is None:
+            last_update = last_update.replace(tzinfo=UTC)
+        elapsed = (datetime.now(UTC) - last_update).total_seconds()
+        if elapsed > _STALE_THRESHOLD_SECONDS:
+            logger.warning("[task] Task %s stale (%ds without update), auto-failing", task_id, int(elapsed))
+            update_task(task_id, status=STATUS_FAILED, error=f"任务超时：{int(elapsed)} 秒无响应", message="任务超时已自动终止")
+            task_dict["status"] = STATUS_FAILED
+            task_dict["error"] = f"任务超时：{int(elapsed)} 秒无响应"
+            task_dict["message"] = "任务超时已自动终止"
+    except Exception:
+        pass
+
+
 def get_task(task_id: str) -> dict[str, Any] | None:
-    """Get task by ID. Returns None if not found."""
+    """Get task by ID. Returns None if not found. Auto-detects stale running tasks."""
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
@@ -118,6 +141,12 @@ def get_task(task_id: str) -> dict[str, Any] | None:
         d["result"] = json.loads(d.get("result", "{}"))
     except (json.JSONDecodeError, TypeError):
         pass
+    # Auto-detect stale running tasks (no update for 10+ minutes)
+    if d["status"] == STATUS_RUNNING:
+        _auto_fail_if_stale(task_id, d)
+        # Re-read after potential update
+        if d["status"] == STATUS_FAILED:
+            return d
     return d
 
 
@@ -131,26 +160,9 @@ def cancel_task(task_id: str) -> bool:
 
 
 def is_task_running(task_id: str) -> bool:
-    """Check if a task is currently running. Treats stale tasks (no update for 10+ minutes) as dead."""
+    """Check if a task is currently running. get_task auto-fails stale tasks."""
     task = get_task(task_id)
-    if task is None or task["status"] != STATUS_RUNNING:
-        return False
-    # Detect stale tasks: if updated_at is more than 10 minutes ago, the worker is likely dead
-    updated_at = task.get("updated_at", "")
-    if updated_at:
-        try:
-            from datetime import UTC, datetime
-            last_update = datetime.fromisoformat(updated_at)
-            if last_update.tzinfo is None:
-                last_update = last_update.replace(tzinfo=UTC)
-            elapsed = (datetime.now(UTC) - last_update).total_seconds()
-            if elapsed > 600:  # 10 minutes
-                logger.warning("[task] Task %s is stale (no update for %ds), marking as failed", task_id, int(elapsed))
-                update_task(task_id, status=STATUS_FAILED, error=f"任务超时：{int(elapsed)} 秒无响应", message="任务超时已自动终止")
-                return False
-        except Exception:
-            pass
-    return True
+    return task is not None and task["status"] == STATUS_RUNNING
 
 
 async def create_task_if_not_running(task_id: str, name: str) -> bool:
