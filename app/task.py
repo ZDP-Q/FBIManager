@@ -125,8 +125,8 @@ def _auto_fail_if_stale(task_id: str, task_dict: dict[str, Any]) -> None:
             task_dict["status"] = STATUS_FAILED
             task_dict["error"] = f"任务超时：{int(elapsed)} 秒无响应"
             task_dict["message"] = "任务超时已自动终止"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[task] Failed to auto-fail stale task %s: %s", task_id, exc)
 
 
 def get_task(task_id: str) -> dict[str, Any] | None:
