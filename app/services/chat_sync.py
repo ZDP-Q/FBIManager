@@ -23,7 +23,7 @@ logger = logging.getLogger("uvicorn.error")
 class ChatSyncService:
     def __init__(self, fb_service: FacebookService):
         self.fb = fb_service
-        self.semaphore = asyncio.Semaphore(5)  # Max 5 concurrent conversation fetches
+        self.semaphore = asyncio.Semaphore(10)  # Max 10 concurrent conversation fetches
         self.messages_synced = 0
         self.conversations_synced = 0
 
