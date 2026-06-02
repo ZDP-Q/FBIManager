@@ -54,6 +54,9 @@ class TaskProgress {
         this.stop();
         if (data.error) {
             this.onError(data.msg || data.message || '任务失败');
+        } else if (data.canceled) {
+            this._updateUI({ percent: data.percent || 0, msg: data.msg || data.message || '已停止' });
+            this.onComplete(data);
         } else {
             this._updateUI({ percent: 100, msg: data.msg || data.message || '完成' });
             this.onComplete(data);

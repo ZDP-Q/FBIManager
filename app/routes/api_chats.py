@@ -23,6 +23,7 @@ async def get_chat_stats_api():
     config = load_config()
     page_id = get_canonical_page_id(config.page_id)
     return {
+        "page_id": page_id,
         "stats": get_chat_dashboard_stats(page_id),
         "detailed_stats": get_chat_detailed_stats(page_id),
     }

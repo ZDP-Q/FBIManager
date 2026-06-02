@@ -70,6 +70,7 @@ async def get_sync_status_api(task: str):
         "percent": t.get("progress", 0),
         "done": t["status"] in (STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED),
         "error": t["status"] == STATUS_FAILED,
+        "canceled": t["status"] == STATUS_CANCELED,
         **(t.get("result", {}) if isinstance(t.get("result"), dict) else {}),
     }
 

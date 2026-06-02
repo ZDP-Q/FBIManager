@@ -26,6 +26,7 @@ class ChatSyncService:
         self.semaphore = asyncio.Semaphore(10)  # Max 10 concurrent conversation fetches
         self.messages_synced = 0
         self.conversations_synced = 0
+        self.task_key = "chat_sync"  # Overridden in sync_all_chats with page-specific key
 
     def _iso_to_unix(self, iso_str: str) -> int:
         """Convert ISO 8601 string to Unix timestamp."""
@@ -38,14 +39,15 @@ class ChatSyncService:
 
     async def sync_all_chats(self, page_id: str, full_sync: bool = False) -> AsyncGenerator[str, None]:
         """Progress generator for SSE. It starts the background worker if not already running."""
-        created = await create_task_if_not_running("chat_sync", "聊天同步")
+        self.task_key = f"chat_sync_{page_id}"
+        created = await create_task_if_not_running(self.task_key, "聊天同步")
         if created:
             asyncio.create_task(self._run_sync_worker(page_id, full_sync))
             await asyncio.sleep(0.1)
 
         last_update = ""
         while True:
-            task = get_task("chat_sync")
+            task = get_task(self.task_key)
             if not task:
                 break
 
@@ -76,7 +78,7 @@ class ChatSyncService:
             logger.info("[chat_sync] FORCING FULL SYNC - Scanning all folders for Page: %s", page_id)
         
         status_msg = "阶段 1/2: 正在扫描会话列表..."
-        update_task("chat_sync", message=status_msg, progress=5)
+        update_task(self.task_key, message=status_msg, progress=5)
         
         self.conversations_synced = 0
         self.messages_synced = 0
@@ -134,7 +136,7 @@ class ChatSyncService:
                     if stop_folder_sync:
                         break
 
-                    update_task("chat_sync",
+                    update_task(self.task_key,
                                 message=f"阶段 1: 扫描目录 [{folder}] - 已发现 {len(discovered_conv_set)} 个活跃会话...",
                                 progress=10)
 
@@ -148,14 +150,14 @@ class ChatSyncService:
             logger.info("[chat_sync] Phase 1 complete. Conversations to sync: %d", total_convs)
             
             if total_convs == 0:
-                update_task("chat_sync", status=STATUS_SUCCESS,
+                update_task(self.task_key, status=STATUS_SUCCESS,
                             message="没有发现需要同步的新会话。", progress=100,
                             result={"conversations": 0, "messages": 0})
                 return
 
             # --- Phase 2: Message Sync ---
             status_msg = f"阶段 2/2: 正在同步 {total_convs} 个会话的消息..."
-            update_task("chat_sync", message=status_msg, progress=20)
+            update_task(self.task_key, message=status_msg, progress=20)
             
             pending = {
                 asyncio.create_task(self._sync_messages_task(conv_id, full_sync=full_sync))
@@ -166,24 +168,26 @@ class ChatSyncService:
                 done, pending = await asyncio.wait(pending, timeout=1.0, return_when=asyncio.FIRST_COMPLETED)
                 processed = self.conversations_synced
                 percent = 20 + int((processed / total_convs) * 80)
-                update_task("chat_sync",
+                update_task(self.task_key,
                             message=f"正在同步消息: {processed}/{total_convs} 会话...",
                             progress=min(99, percent),
                             result={"messages_synced": self.messages_synced})
                 # Check for user cancellation
-                task = get_task("chat_sync")
+                task = get_task(self.task_key)
                 if task and task["status"] == STATUS_CANCELED:
                     for t in pending:
                         t.cancel()
+                    update_task(self.task_key, message=f"同步已停止（已处理 {processed}/{total_convs} 个会话）",
+                                result={"conversations": self.conversations_synced, "messages": self.messages_synced})
                     return
 
             final_msg = f"同步完成！处理了 {total_convs} 个会话，新增/更新 {self.messages_synced} 条消息。"
-            update_task("chat_sync", status=STATUS_SUCCESS, message=final_msg, progress=100,
+            update_task(self.task_key, status=STATUS_SUCCESS, message=final_msg, progress=100,
                         result={"conversations": self.conversations_synced, "messages": self.messages_synced})
 
         except Exception as e:
             logger.error("[chat_sync] background worker failed: %s", e, exc_info=True)
-            update_task("chat_sync", status=STATUS_FAILED, message=f"同步失败: {str(e)}", error=str(e))
+            update_task(self.task_key, status=STATUS_FAILED, message=f"同步失败: {str(e)}", error=str(e))
         finally:
             await self.fb.close()
 
@@ -240,7 +244,7 @@ class ChatSyncService:
                 if batch_messages:
                     bulk_upsert_conversation_messages(batch_messages)
                 # Heartbeat: refresh task updated_at so stale detection knows we're alive
-                heartbeat_task("chat_sync")
+                heartbeat_task(self.task_key)
                 
                 if stop_message_sync:
                     break
