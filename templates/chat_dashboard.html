@@ -151,6 +151,7 @@
         <div style="display: flex; gap: 8px;">
             <button class="btn btn-primary" id="btn-sync-chats">增量同步私信</button>
             <button class="btn btn-outline" id="btn-full-sync-chats" style="border: 1px solid var(--border); background: transparent; color: var(--text-muted);">全量强制同步</button>
+            <button class="btn btn-danger" id="btn-stop-sync" style="display: none;">停止同步</button>
         </div>
     </div>
 </div>
@@ -212,5 +213,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/chat_dashboard.js?v=sort-v1"></script>
+<script src="/static/js/chat_dashboard.js?v=stop-btn-v1"></script>
 {% endblock %}

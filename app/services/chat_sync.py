@@ -170,7 +170,13 @@ class ChatSyncService:
                             message=f"正在同步消息: {processed}/{total_convs} 会话...",
                             progress=min(99, percent),
                             result={"messages_synced": self.messages_synced})
-            
+                # Check for user cancellation
+                task = get_task("chat_sync")
+                if task and task["status"] == STATUS_CANCELED:
+                    for t in pending:
+                        t.cancel()
+                    return
+
             final_msg = f"同步完成！处理了 {total_convs} 个会话，新增/更新 {self.messages_synced} 条消息。"
             update_task("chat_sync", status=STATUS_SUCCESS, message=final_msg, progress=100,
                         result={"conversations": self.conversations_synced, "messages": self.messages_synced})

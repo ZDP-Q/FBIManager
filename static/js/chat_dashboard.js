@@ -156,11 +156,17 @@ async function loadUserRanking() {
 
 let chatSyncProgress = null;
 
-function startSync(isFull = false) {
+function setSyncButtonsState(syncing) {
     const btnInc = document.getElementById('btn-sync-chats');
     const btnFull = document.getElementById('btn-full-sync-chats');
-    if (btnInc) btnInc.disabled = true;
-    if (btnFull) btnFull.disabled = true;
+    const btnStop = document.getElementById('btn-stop-sync');
+    if (btnInc) btnInc.disabled = syncing;
+    if (btnFull) btnFull.disabled = syncing;
+    if (btnStop) btnStop.style.display = syncing ? '' : 'none';
+}
+
+function startSync(isFull = false) {
+    setSyncButtonsState(true);
 
     chatSyncProgress = new TaskProgress({
         taskId: 'chat_sync',
@@ -170,15 +176,18 @@ function startSync(isFull = false) {
         percent: null,
         detail: '#sync-detail',
         onComplete: (data) => {
-            if (btnInc) btnInc.disabled = false;
-            if (btnFull) btnFull.disabled = false;
+            setSyncButtonsState(false);
             const result = data.result || {};
-            showAlert(`${isFull ? '全量' : '增量'}同步完成：${result.conversations ?? 0} 个会话，${result.messages ?? 0} 条消息。`, 'success');
+            const status = data.status || '';
+            if (status === 'canceled') {
+                showAlert('同步已停止。', 'info');
+            } else {
+                showAlert(`${isFull ? '全量' : '增量'}同步完成：${result.conversations ?? 0} 个会话，${result.messages ?? 0} 条消息。`, 'success');
+            }
             loadDashboard();
         },
         onError: (msg) => {
-            if (btnInc) btnInc.disabled = false;
-            if (btnFull) btnFull.disabled = false;
+            setSyncButtonsState(false);
             showAlert(msg || '同步失败', 'error');
         },
         onProgress: (data) => {
@@ -193,8 +202,15 @@ function startSync(isFull = false) {
     chatSyncProgress.startPolling();
 }
 
+async function stopSync() {
+    try {
+        await fetch('/api/tasks/chat_sync/cancel', { method: 'POST' });
+    } catch (_) {}
+}
+
 document.getElementById('btn-sync-chats')?.addEventListener('click', () => startSync(false));
 document.getElementById('btn-full-sync-chats')?.addEventListener('click', () => startSync(true));
+document.getElementById('btn-stop-sync')?.addEventListener('click', stopSync);
 
 async function checkOngoingSync() {
     chatSyncProgress = new TaskProgress({
@@ -205,18 +221,17 @@ async function checkOngoingSync() {
         percent: null,
         detail: '#sync-detail',
         onComplete: (data) => {
-            const btnInc = document.getElementById('btn-sync-chats');
-            const btnFull = document.getElementById('btn-full-sync-chats');
-            if (btnInc) btnInc.disabled = false;
-            if (btnFull) btnFull.disabled = false;
-            showAlert('同步已在后台完成', 'success');
+            setSyncButtonsState(false);
+            const status = data.status || '';
+            if (status === 'canceled') {
+                showAlert('同步已停止。', 'info');
+            } else {
+                showAlert('同步已在后台完成', 'success');
+            }
             loadDashboard();
         },
         onError: (msg) => {
-            const btnInc = document.getElementById('btn-sync-chats');
-            const btnFull = document.getElementById('btn-full-sync-chats');
-            if (btnInc) btnInc.disabled = false;
-            if (btnFull) btnFull.disabled = false;
+            setSyncButtonsState(false);
             showAlert(msg || '同步失败', 'error');
         },
         onProgress: (data) => {
@@ -228,10 +243,7 @@ async function checkOngoingSync() {
     });
     const found = await chatSyncProgress.restore();
     if (found) {
-        const btnInc = document.getElementById('btn-sync-chats');
-        const btnFull = document.getElementById('btn-full-sync-chats');
-        if (btnInc) btnInc.disabled = true;
-        if (btnFull) btnFull.disabled = true;
+        setSyncButtonsState(true);
     }
 }
 
