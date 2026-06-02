@@ -134,8 +134,6 @@ function renderProfile(p) {
     if (nameEl) nameEl.textContent = p.name || '未命名';
     const catEl = document.getElementById('profile-category');
     if (catEl) catEl.textContent = p.category || '-';
-    const userEl = document.getElementById('profile-username');
-    if (userEl) userEl.textContent = p.username || '-';
     const fansEl = document.getElementById('profile-fans');
     if (fansEl) {
         const count = p.fan_count;
