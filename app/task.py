@@ -109,6 +109,12 @@ def update_task(
 _STALE_THRESHOLD_SECONDS = 600  # 10 minutes
 
 
+def heartbeat_task(task_id: str) -> None:
+    """Refresh a task's updated_at without changing any other fields. Call from active workers."""
+    with get_connection() as conn:
+        conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_now(), task_id))
+
+
 def _auto_fail_if_stale(task_id: str, task_dict: dict[str, Any]) -> None:
     """If a running task hasn't been updated in >10 min, mark it as failed in-place."""
     updated_at = task_dict.get("updated_at", "")

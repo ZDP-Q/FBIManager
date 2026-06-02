@@ -16,7 +16,7 @@ from app.repositories import (
     check_message_exists
 )
 
-from app.task import create_task_if_not_running, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
+from app.task import create_task_if_not_running, update_task, heartbeat_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -184,13 +184,8 @@ class ChatSyncService:
     async def _sync_messages_task(self, conv_id: str, full_sync: bool):
         async with self.semaphore:
             try:
-                msg_count = await asyncio.wait_for(
-                    self._sync_messages_for_conversation(conv_id, full_sync=full_sync),
-                    timeout=60
-                )
+                msg_count = await self._sync_messages_for_conversation(conv_id, full_sync=full_sync)
                 self.messages_synced += msg_count
-            except asyncio.TimeoutError:
-                logger.warning("[chat_sync] Timeout syncing conversation %s (60s), skipping", conv_id)
             except Exception as e:
                 logger.warning("[chat_sync] Error syncing conversation %s: %s", conv_id, e)
             finally:
@@ -238,6 +233,8 @@ class ChatSyncService:
                 
                 if batch_messages:
                     bulk_upsert_conversation_messages(batch_messages)
+                # Heartbeat: refresh task updated_at so stale detection knows we're alive
+                heartbeat_task("chat_sync")
                 
                 if stop_message_sync:
                     break
