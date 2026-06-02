@@ -50,6 +50,7 @@ class AccountPayload(BaseModel):
     verify_token: str
     page_id: str
     api_version: str = "v25.0"
+    app_secret: str = ""
 
 
 class ModelConfigPayload(BaseModel):
@@ -60,7 +61,6 @@ class ModelConfigPayload(BaseModel):
     video_api_key: str = ""
     video_model: str = ""
     prompt_template: str = "reply_prompt.j2"
-    app_secret: str = ""
 
 
 class ChangePasswordPayload(BaseModel):
@@ -75,7 +75,7 @@ async def get_settings():
     model = get_model_config() or {
         "reply_api_base_url": "", "reply_api_key": "", "reply_model": "",
         "video_api_base_url": "", "video_api_key": "", "video_model": "",
-        "prompt_template": "reply_prompt.j2", "app_secret": "",
+        "prompt_template": "reply_prompt.j2",
     }
     return {"accounts": accounts, "active_account_id": active["id"] if active else None, "model": model}
 
@@ -91,7 +91,8 @@ async def create_account_api(payload: AccountPayload):
         account_id = create_account(
             name=payload.name.strip() or f"账号 {page_id}",
             page_access_token=token, verify_token=verify,
-            page_id=page_id, api_version=(payload.api_version.strip() or "v25.0"), is_active=0,
+            page_id=page_id, api_version=(payload.api_version.strip() or "v25.0"),
+            app_secret=payload.app_secret.strip(), is_active=0,
         )
         return {"status": "success", "account_id": account_id}
     except Exception as exc:
@@ -113,6 +114,7 @@ async def update_account_api(account_id: int, payload: AccountPayload):
             account_id, name=payload.name.strip() or f"账号 {page_id}",
             page_access_token=token, verify_token=verify,
             page_id=page_id, api_version=(payload.api_version.strip() or "v25.0"),
+            app_secret=payload.app_secret.strip(),
         )
         return {"status": "success"}
     except Exception as exc:
@@ -167,7 +169,6 @@ async def update_model_api(payload: ModelConfigPayload):
         video_api_key=payload.video_api_key.strip(),
         video_model=payload.video_model.strip(),
         prompt_template=payload.prompt_template.strip() or "reply_prompt.j2",
-        app_secret=payload.app_secret.strip(),
     )
     return {"status": "success"}
 

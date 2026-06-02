@@ -25,6 +25,7 @@ function getAccountFromForm() {
         api_version: (document.getElementById('account-api-version')?.value || '').trim() || 'v25.0',
         page_access_token: (document.getElementById('account-token')?.value || '').trim(),
         verify_token: (document.getElementById('account-verify-token')?.value || '').trim(),
+        app_secret: (document.getElementById('app-secret')?.value || '').trim(),
     };
 }
 
@@ -34,6 +35,7 @@ function fillAccountForm(account) {
     document.getElementById('account-api-version').value = account?.api_version || 'v25.0';
     document.getElementById('account-token').value = account?.page_access_token || '';
     document.getElementById('account-verify-token').value = account?.verify_token || '';
+    document.getElementById('app-secret').value = account?.app_secret || '';
 }
 
 function renderAccountSelect() {
@@ -86,8 +88,6 @@ async function loadSettings() {
     if (videoKeyEl) videoKeyEl.value = model.video_api_key || '';
     const videoModelEl = document.getElementById('video-model');
     if (videoModelEl) videoModelEl.value = model.video_model || '';
-    const appSecretEl = document.getElementById('app-secret');
-    if (appSecretEl) appSecretEl.value = model.app_secret || '';
 }
 
 async function saveAccount() {
@@ -284,7 +284,6 @@ document.getElementById('btn-model-save')?.addEventListener('click', async () =>
         video_api_base_url: (document.getElementById('video-base-url')?.value || '').trim(),
         video_api_key: (document.getElementById('video-api-key')?.value || '').trim(),
         video_model: (document.getElementById('video-model')?.value || '').trim(),
-        app_secret: (document.getElementById('app-secret')?.value || '').trim(),
     };
 
     try {

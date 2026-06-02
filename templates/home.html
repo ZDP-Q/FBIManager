@@ -88,6 +88,10 @@
             <label for="account-verify-token">VERIFY_TOKEN</label>
             <input type="text" id="account-verify-token" placeholder="Webhook 验证口令">
         </div>
+        <div class="form-group" style="margin-bottom:8px">
+            <label for="app-secret">APP_SECRET（用于验证 Webhook 签名）</label>
+            <input type="password" id="app-secret" placeholder="留空则不验证签名">
+        </div>
         <div class="page-actions">
             <button class="btn btn-secondary btn-sm" id="btn-account-activate">设为当前账号</button>
             <button class="btn btn-primary btn-sm" id="btn-account-save">保存账号</button>
@@ -140,12 +144,6 @@
             <input type="password" id="video-api-key" placeholder="留空则使用回复模型的 Key">
         </div>
 
-        <!-- Webhook 签名密钥 -->
-        <h4 style="margin: 20px 0 12px; font-size: 14px; color: var(--accent);">Webhook 安全</h4>
-        <div class="form-group">
-            <label for="app-secret">App Secret（用于验证 Facebook Webhook 签名）</label>
-            <input type="password" id="app-secret" placeholder="留空则不验证签名">
-        </div>
     </div>
 </div>
 

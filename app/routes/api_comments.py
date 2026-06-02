@@ -142,7 +142,6 @@ async def activate_prompt_api(payload: ActivatePromptPayload):
         video_api_key=str(model.get("video_api_key", "")),
         video_model=str(model.get("video_model", "")),
         prompt_template=payload.filename.strip(),
-        app_secret=str(model.get("app_secret", "")),
     )
     return {"status": "success"}
 

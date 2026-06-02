@@ -378,6 +378,20 @@ def _migrate_schema(connection) -> None:
             connection.execute("ALTER TABLE model_configs ADD COLUMN app_secret TEXT NOT NULL DEFAULT ''")
         _set_schema_version(connection, 12)
 
+    # v13: move app_secret from model_configs to account_configs
+    if current < 13:
+        if not _column_exists(connection, "account_configs", "app_secret"):
+            connection.execute("ALTER TABLE account_configs ADD COLUMN app_secret TEXT NOT NULL DEFAULT ''")
+            # Migrate existing data: copy app_secret from model_configs to active account
+            row = connection.execute("SELECT app_secret FROM model_configs LIMIT 1").fetchone()
+            if row and row["app_secret"]:
+                active = connection.execute("SELECT id FROM account_configs WHERE is_active = 1 LIMIT 1").fetchone()
+                if active:
+                    connection.execute("UPDATE account_configs SET app_secret = ? WHERE id = ?", (row["app_secret"], active["id"]))
+                else:
+                    connection.execute("UPDATE account_configs SET app_secret = ? WHERE id = (SELECT MIN(id) FROM account_configs)", (row["app_secret"],))
+        _set_schema_version(connection, 13)
+
 
 def _seed_auto_monitor_config_if_needed() -> None:
     with get_connection() as connection:

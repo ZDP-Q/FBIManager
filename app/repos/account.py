@@ -80,6 +80,7 @@ def create_account(
     verify_token: str,
     page_id: str,
     api_version: str,
+    app_secret: str = "",
     is_active: int = 0,
 ) -> int:
     with get_connection() as connection:
@@ -89,17 +90,17 @@ def create_account(
             cursor = connection.execute(
                 """
                 INSERT OR REPLACE INTO account_configs (
-                    name, page_access_token, verify_token, page_id, api_version, is_active, updated_at
+                    name, page_access_token, verify_token, page_id, api_version, app_secret, is_active, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
-                (name, page_access_token, verify_token, page_id, api_version, int(bool(is_active))),
+                (name, page_access_token, verify_token, page_id, api_version, app_secret, int(bool(is_active))),
             )
             return int(cursor.lastrowid)
 
 
 def update_account(account_id: int, **kwargs: Any) -> None:
-    allowed = {"name", "page_access_token", "verify_token", "page_id", "api_version", "is_active"}
+    allowed = {"name", "page_access_token", "verify_token", "page_id", "api_version", "app_secret", "is_active"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return
@@ -148,13 +149,14 @@ def bulk_import_accounts(accounts: list[dict[str, Any]]) -> int:
                     continue
                 connection.execute(
                     """
-                    INSERT INTO account_configs (name, page_access_token, verify_token, page_id, api_version, is_active, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+                    INSERT INTO account_configs (name, page_access_token, verify_token, page_id, api_version, app_secret, is_active, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
                     ON CONFLICT(page_id) DO UPDATE SET
                         name = excluded.name,
                         page_access_token = excluded.page_access_token,
                         verify_token = excluded.verify_token,
                         api_version = excluded.api_version,
+                        app_secret = excluded.app_secret,
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     (
@@ -163,6 +165,7 @@ def bulk_import_accounts(accounts: list[dict[str, Any]]) -> int:
                         acc.get("verify_token", ""),
                         page_id,
                         acc.get("api_version", "v25.0") or "v25.0",
+                        acc.get("app_secret", ""),
                     ),
                 )
                 count += 1
@@ -177,7 +180,7 @@ def get_model_config() -> dict[str, Any] | None:
             """
             SELECT id, reply_api_base_url, reply_api_key, reply_model,
                    video_api_base_url, video_api_key, video_model,
-                   prompt_template, app_secret, updated_at
+                   prompt_template, updated_at
             FROM model_configs
             WHERE id = 1
             """
@@ -194,7 +197,6 @@ def upsert_model_config(
     video_api_key: str = '',
     video_model: str = '',
     prompt_template: str = 'reply_prompt.j2',
-    app_secret: str = '',
 ) -> None:
     with get_connection() as connection:
         with connection:
@@ -202,8 +204,8 @@ def upsert_model_config(
                 """
                 INSERT INTO model_configs (id, reply_api_base_url, reply_api_key, reply_model,
                     video_api_base_url, video_api_key, video_model,
-                    prompt_template, app_secret, updated_at)
-                VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    prompt_template, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     reply_api_base_url = excluded.reply_api_base_url,
                     reply_api_key = excluded.reply_api_key,
@@ -212,10 +214,9 @@ def upsert_model_config(
                     video_api_key = excluded.video_api_key,
                     video_model = excluded.video_model,
                     prompt_template = excluded.prompt_template,
-                    app_secret = excluded.app_secret,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (reply_api_base_url, reply_api_key, reply_model,
                  video_api_base_url, video_api_key, video_model,
-                 prompt_template, app_secret),
+                 prompt_template),
             )
