@@ -64,43 +64,91 @@ function formatBeijingTime(isoStr) {
     return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
 }
 
+let rankingData = [];
+let sortState = { key: null, dir: 'desc' };
+
+function renderRankingTable(data) {
+    const body = document.getElementById('user-ranking-body');
+    if (!body) return;
+
+    body.innerHTML = '';
+    if (data.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 40px;">暂无数据</td></tr>';
+        return;
+    }
+
+    data.forEach((user, index) => {
+        const tr = document.createElement('tr');
+        const lastActive = user.last_active_time ? formatBeijingTime(user.last_active_time) : '-';
+        tr.innerHTML = `
+            <td style="color: var(--text-muted); font-size: 13px;">${index + 1}</td>
+            <td>
+                <div class="user-info">
+                    ${getAvatarHtml(user)}
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-weight: 600;">${escapeHtml(user.name || '未知用户')}</span>
+                        <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ${escapeHtml(user.user_id)}</span>
+                    </div>
+                </div>
+            </td>
+            <td class="stat-highlight">${user.message_count.toLocaleString()}</td>
+            <td>${user.active_days} 天</td>
+            <td style="font-size: 13px; color: var(--text-muted);">${lastActive}</td>
+        `;
+        body.appendChild(tr);
+    });
+}
+
+function sortRanking(key) {
+    if (sortState.key === key) {
+        sortState.dir = sortState.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+        sortState.key = key;
+        sortState.dir = key === 'last_active_time' ? 'desc' : 'desc';
+    }
+
+    const sorted = [...rankingData].sort((a, b) => {
+        let va = a[key] ?? '';
+        let vb = b[key] ?? '';
+        if (key === 'last_active_time') {
+            va = va || '0000';
+            vb = vb || '0000';
+        }
+        if (va < vb) return sortState.dir === 'asc' ? -1 : 1;
+        if (va > vb) return sortState.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    document.querySelectorAll('.sortable').forEach(th => {
+        th.classList.remove('asc', 'desc');
+        if (th.dataset.sort === sortState.key) {
+            th.classList.add(sortState.dir);
+        }
+    });
+
+    renderRankingTable(sorted);
+}
+
+function initSortHandlers() {
+    document.querySelectorAll('.sortable').forEach(th => {
+        th.addEventListener('click', () => sortRanking(th.dataset.sort));
+    });
+}
+
 async function loadUserRanking() {
     const limitInput = document.getElementById('input-ranking-limit');
     const limit = limitInput ? limitInput.value : 100;
-    const body = document.getElementById('user-ranking-body');
-    if (!body) return;
 
     try {
         const r = await fetch(`/api/chats/user-ranking?limit=${limit}`);
         if (!r.ok) throw new Error('获取排名数据失败');
-        const data = await r.json();
+        rankingData = await r.json();
 
-        body.innerHTML = '';
-        if (data.length === 0) {
-            body.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 40px;">暂无数据</td></tr>';
-            return;
-        }
+        // Reset sort state on new data load
+        sortState = { key: null, dir: 'desc' };
+        document.querySelectorAll('.sortable').forEach(th => th.classList.remove('asc', 'desc'));
 
-        data.forEach((user, index) => {
-            const tr = document.createElement('tr');
-            const lastActive = user.last_active_time ? formatBeijingTime(user.last_active_time) : '-';
-            tr.innerHTML = `
-                <td style="color: var(--text-muted); font-size: 13px;">${index + 1}</td>
-                <td>
-                    <div class="user-info">
-                        ${getAvatarHtml(user)}
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="font-weight: 600;">${escapeHtml(user.name || '未知用户')}</span>
-                            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ${escapeHtml(user.user_id)}</span>
-                        </div>
-                    </div>
-                </td>
-                <td class="stat-highlight">${user.message_count.toLocaleString()}</td>
-                <td>${user.active_days} 天</td>
-                <td style="font-size: 13px; color: var(--text-muted);">${lastActive}</td>
-            `;
-            body.appendChild(tr);
-        });
+        renderRankingTable(rankingData);
     } catch (e) {
         console.error('Failed to load user ranking:', e);
     }
@@ -190,6 +238,7 @@ async function checkOngoingSync() {
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboard();
     checkOngoingSync();
+    initSortHandlers();
 
     document.getElementById('btn-refresh-ranking')?.addEventListener('click', () => {
         loadUserRanking();

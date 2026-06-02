@@ -115,6 +115,29 @@
         align-items: center;
         gap: 12px;
     }
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.15s;
+    }
+    .sortable:hover {
+        color: var(--accent);
+    }
+    .sort-icon::after {
+        content: '⇅';
+        font-size: 11px;
+        opacity: 0.4;
+    }
+    .sortable.asc .sort-icon::after {
+        content: '▲';
+        opacity: 1;
+        color: var(--accent);
+    }
+    .sortable.desc .sort-icon::after {
+        content: '▼';
+        opacity: 1;
+        color: var(--accent);
+    }
 </style>
 {% endblock %}
 
@@ -174,9 +197,9 @@
                 <tr style="position: sticky; top: 0; background: var(--surface-1); z-index: 1;">
                     <th style="width: 6%;">排名</th>
                     <th style="width: 34%;">用户</th>
-                    <th style="width: 18%;">聊天条数</th>
-                    <th style="width: 18%;">活跃天数</th>
-                    <th style="width: 24%;">最后活跃</th>
+                    <th style="width: 18%;" class="sortable" data-sort="message_count">聊天条数 <span class="sort-icon"></span></th>
+                    <th style="width: 18%;" class="sortable" data-sort="active_days">活跃天数 <span class="sort-icon"></span></th>
+                    <th style="width: 24%;" class="sortable" data-sort="last_active_time">最后活跃 <span class="sort-icon"></span></th>
                 </tr>
             </thead>
             <tbody id="user-ranking-body">
@@ -189,5 +212,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/chat_dashboard.js?v=code-review-3"></script>
+<script src="/static/js/chat_dashboard.js?v=sort-v1"></script>
 {% endblock %}
