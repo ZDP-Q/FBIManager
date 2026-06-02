@@ -363,7 +363,8 @@ def get_user_ranking_stats(page_id: str, limit: int = 100) -> list[dict[str, Any
             """
             SELECT c.id as conversation_id, c.participants_json,
                    COUNT(m.id) as total_message_count,
-                   COUNT(DISTINCT date(substr(m.created_time, 1, 10))) as total_active_days
+                   COUNT(DISTINCT date(substr(m.created_time, 1, 10))) as total_active_days,
+                   MAX(m.created_time) as last_active_time
             FROM page_conversations c
             LEFT JOIN conversation_messages m ON c.id = m.conversation_id
             WHERE c.page_id = ?
@@ -378,5 +379,6 @@ def get_user_ranking_stats(page_id: str, limit: int = 100) -> list[dict[str, Any
         results.append({
             "name": user["name"], "user_id": user["user_id"], "avatar_url": user["avatar_url"],
             "message_count": row["total_message_count"], "active_days": row["total_active_days"],
+            "last_active_time": row["last_active_time"] or "",
         })
     return results

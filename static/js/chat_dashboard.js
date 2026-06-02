@@ -55,6 +55,15 @@ function getAvatarColor(name) {
     return colors[Math.abs(hash) % colors.length];
 }
 
+function formatBeijingTime(isoStr) {
+    if (!isoStr) return '-';
+    // Parse as UTC, then display in Asia/Shanghai (UTC+8)
+    const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
+    if (isNaN(d.getTime())) return isoStr;
+    const opts = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' };
+    return d.toLocaleString('zh-CN', opts);
+}
+
 async function loadUserRanking() {
     const limitInput = document.getElementById('input-ranking-limit');
     const limit = limitInput ? limitInput.value : 100;
@@ -74,6 +83,7 @@ async function loadUserRanking() {
 
         data.forEach((user, index) => {
             const tr = document.createElement('tr');
+            const lastActive = user.last_active_time ? formatBeijingTime(user.last_active_time) : '-';
             tr.innerHTML = `
                 <td style="color: var(--text-muted); font-size: 13px;">${index + 1}</td>
                 <td>
@@ -87,6 +97,7 @@ async function loadUserRanking() {
                 </td>
                 <td class="stat-highlight">${user.message_count.toLocaleString()}</td>
                 <td>${user.active_days} 天</td>
+                <td style="font-size: 13px; color: var(--text-muted);">${lastActive}</td>
             `;
             body.appendChild(tr);
         });
