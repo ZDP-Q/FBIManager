@@ -151,6 +151,25 @@ async def activate_prompt_api(payload: ActivatePromptPayload):
     return {"status": "success"}
 
 
+@router.post("/prompts/{filename}")
+async def create_prompt_api(filename: str, payload: SavePromptPayload):
+    import os
+    from app.config import PROJECT_ROOT
+    if not filename.endswith(".j2") or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="无效的文件名")
+    prompts_dir = PROJECT_ROOT / "prompts"
+    file_path = prompts_dir / filename
+    if file_path.exists():
+        raise HTTPException(status_code=409, detail="文件已存在")
+    try:
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(payload.content)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"创建失败: {exc}") from exc
+
+
 @router.put("/prompts/{filename}")
 async def save_prompt_api(filename: str, payload: SavePromptPayload):
     import os
