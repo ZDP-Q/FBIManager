@@ -1,13 +1,65 @@
 {% extends "base.html" %}
 
-{% block title %}人设管理 - FacebookMsg{% endblock %}
+{% block title %}人设管理{% endblock %}
 {% block nav_personas %}active{% endblock %}
 
+{% block head %}
+<style>
+    .persona-card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .persona-row {
+        display: flex;
+        align-items: center;
+        padding: 14px 18px;
+        gap: 16px;
+        border-bottom: 1px solid var(--border-muted);
+        transition: background 0.15s;
+    }
+    .persona-row:last-child { border-bottom: none; }
+    .persona-row:hover { background: var(--surface-2); }
+    .persona-row.active { background: var(--surface-2); }
+    .persona-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+    .persona-info { flex: 1; min-width: 0; }
+    .persona-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text);
+        font-family: monospace;
+    }
+    .persona-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+    .persona-actions { display: flex; gap: 6px; align-items: center; }
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+    .empty-state-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+    .empty-state p { font-size: 14px; margin: 0; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="header">
-    <div class="header-left">
-        <h2>人设管理</h2>
-        <p class="subtitle">管理用于监控回复的 AI 提示词模板（.j2 格式）。可新建、编辑、切换人设。</p>
+<div class="page-header">
+    <div>
+        <h1 class="page-title">人设管理</h1>
+        <p class="page-subtitle">管理 AI 回复的提示词模板，可新建、编辑、切换人设。</p>
     </div>
     <div class="page-actions">
         <button class="btn btn-primary" onclick="createPrompt()">新建人设</button>
@@ -16,21 +68,10 @@
 
 <div id="personas-alert" class="alert"></div>
 
-<div class="content-section">
-    <div class="section-title">可用人设列表</div>
-    <div class="table-wrap">
-        <table class="table" id="personas-table">
-            <thead>
-                <tr>
-                    <th>模板文件名</th>
-                    <th>当前状态</th>
-                    <th style="width: 150px;">操作</th>
-                </tr>
-            </thead>
-            <tbody id="personas-body">
-                <tr><td colspan="3" class="text-muted" style="text-align:center;">正在加载...</td></tr>
-            </tbody>
-        </table>
+<div class="persona-card" id="personas-container">
+    <div class="empty-state">
+        <div class="empty-state-icon">🤖</div>
+        <p>正在加载...</p>
     </div>
 </div>
 
@@ -42,7 +83,7 @@
             <button class="btn btn-ghost btn-icon" onclick="closeModal('modal-preview')" aria-label="关闭">✕</button>
         </div>
         <div class="modal-body">
-            <pre id="preview-content" style="background: var(--bg); padding: 16px; border-radius: var(--radius); overflow-x: auto; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;"></pre>
+            <pre id="preview-content" style="background: var(--bg); padding: 16px; border-radius: var(--radius); overflow-x: auto; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; font-family: 'SF Mono', 'Fira Code', monospace;"></pre>
         </div>
         <div class="modal-footer">
             <button class="btn btn-outline" onclick="closeModal('modal-preview')">关闭</button>
@@ -57,17 +98,20 @@
             <h3 class="modal-title" id="edit-modal-title">编辑模板：<span id="edit-filename"></span></h3>
             <button class="btn btn-ghost btn-icon" onclick="closeModal('modal-edit')" aria-label="关闭">✕</button>
         </div>
-        <div class="modal-body" style="display: flex; gap: 16px; align-items: flex-start;">
+        <div class="modal-body" style="display: flex; gap: 16px; align-items: flex-start; padding: 16px;">
             <div style="flex: 1; min-width: 0;">
-                <textarea id="edit-content" style="width: 100%; min-height: 500px; font-family: monospace; font-size: 13px; line-height: 1.6; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text); resize: vertical; tab-size: 4;"></textarea>
+                <textarea id="edit-content" style="width: 100%; min-height: 520px; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.7; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); resize: vertical; tab-size: 4; outline: none; transition: border-color 0.15s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></textarea>
             </div>
-            <div id="var-reference" style="width: 280px; flex-shrink: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; max-height: 500px; overflow-y: auto;">
-                <div style="font-weight: 700; font-size: 13px; margin-bottom: 10px; color: var(--accent);">可用变量</div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">点击变量名插入到编辑器中</div>
-                <div id="var-list"></div>
+            <div id="var-reference" style="width: 260px; flex-shrink: 0; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
+                <div style="padding: 12px 14px; border-bottom: 1px solid var(--border-muted); background: var(--surface-2);">
+                    <div style="font-weight: 700; font-size: 13px; color: var(--accent);">可用变量</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">点击插入到编辑器</div>
+                </div>
+                <div id="var-list" style="padding: 8px;"></div>
             </div>
         </div>
         <div class="modal-footer">
+            <div style="flex: 1; font-size: 12px; color: var(--text-muted);">Ctrl+S 保存 · Tab 缩进</div>
             <button class="btn btn-outline" onclick="closeModal('modal-edit')">取消</button>
             <button class="btn btn-primary" id="btn-save-prompt" onclick="savePrompt()">保存</button>
         </div>

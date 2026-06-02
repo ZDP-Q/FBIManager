@@ -1,5 +1,5 @@
 const alertEl = document.getElementById('personas-alert');
-const tbody = document.getElementById('personas-body');
+const container = document.getElementById('personas-container');
 
 let promptsData = [];
 let editingFilename = '';
@@ -60,15 +60,15 @@ function openModal(id) {
 }
 
 function renderVarReference() {
-    const container = document.getElementById('var-list');
-    if (!container) return;
-    container.innerHTML = TEMPLATE_VARS.map(v => `
-        <div style="margin-bottom: 10px; cursor: pointer; padding: 6px 8px; border-radius: 6px; transition: background 0.15s;"
-             onmouseenter="this.style.background='var(--surface-3)'"
-             onmouseleave="this.style.background='transparent'"
-             onclick="insertVariable('{{ ${v.name} }}')">
+    const varList = document.getElementById('var-list');
+    if (!varList) return;
+    varList.innerHTML = TEMPLATE_VARS.map(v => `
+        <div class="var-item" onclick="insertVariable('{{ ${v.name} }}')"
+             style="cursor: pointer; padding: 8px 10px; border-radius: 6px; transition: background 0.12s; margin-bottom: 2px;"
+             onmouseenter="this.style.background='var(--surface-2)'"
+             onmouseleave="this.style.background='transparent'">
             <div style="font-family: monospace; font-size: 12px; font-weight: 600; color: var(--accent);">{{ ${v.name} }}</div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${v.desc}</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.4;">${v.desc}</div>
         </div>
     `).join('');
 }
@@ -91,37 +91,43 @@ async function loadPrompts() {
         promptsData = result.data || [];
         renderTable();
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="3" class="text-danger" style="text-align:center;">${e.message}</td></tr>`;
+        container.innerHTML = `<div class="empty-state"><p style="color: var(--danger);">${e.message}</p></div>`;
     }
 }
 
 function renderTable() {
     if (promptsData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-muted" style="text-align:center;">暂无人设模板，点击"新建人设"创建。</td></tr>';
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🤖</div>
+                <p>暂无人设模板</p>
+                <p style="margin-top: 8px; font-size: 13px;">点击上方"新建人设"创建你的第一个 AI 人设</p>
+            </div>`;
         return;
     }
 
-    tbody.innerHTML = promptsData.map((p, idx) => `
-        <tr class="${p.is_active ? 'active-row' : ''}">
-            <td>
-                <div style="font-weight:600;">${p.filename}</div>
-            </td>
-            <td>
-                ${p.is_active
-                    ? '<span class="badge badge-success">正在使用</span>'
-                    : '<span class="badge badge-neutral">备选</span>'}
-            </td>
-            <td>
-                <div class="actions">
-                    <button class="btn btn-outline btn-sm" onclick="previewPrompt(${idx})">预览</button>
-                    <button class="btn btn-outline btn-sm" onclick="editPrompt(${idx})">编辑</button>
-                    ${!p.is_active
-                        ? `<button class="btn btn-primary btn-sm" id="btn-act-${idx}" onclick="activatePrompt('${p.filename}', ${idx})">使用此人设</button>`
-                        : `<button class="btn btn-primary btn-sm" disabled style="opacity:0.6;cursor:not-allowed;">使用中</button>`}
-                </div>
-            </td>
-        </tr>
-    `).join('');
+    container.innerHTML = promptsData.map((p, idx) => {
+        const iconBg = p.is_active ? 'var(--accent)' : 'var(--surface-3)';
+        const iconColor = p.is_active ? '#fff' : 'var(--text-muted)';
+        const lines = (p.content || '').split('\n').filter(l => l.trim() && !l.trim().startsWith('{%')).length;
+        return `
+        <div class="persona-row ${p.is_active ? 'active' : ''}">
+            <div class="persona-icon" style="background: ${iconBg}; color: ${iconColor};">
+                ${p.is_active ? '✦' : '◇'}
+            </div>
+            <div class="persona-info">
+                <div class="persona-name">${p.filename}</div>
+                <div class="persona-meta">${lines} 行内容${p.is_active ? ' · 当前使用中' : ''}</div>
+            </div>
+            <div class="persona-actions">
+                <button class="btn btn-outline btn-sm" onclick="previewPrompt(${idx})">预览</button>
+                <button class="btn btn-outline btn-sm" onclick="editPrompt(${idx})">编辑</button>
+                ${!p.is_active
+                    ? `<button class="btn btn-primary btn-sm" id="btn-act-${idx}" onclick="activatePrompt('${p.filename}', ${idx})">使用</button>`
+                    : `<span class="badge badge-success" style="padding: 4px 10px;">使用中</span>`}
+            </div>
+        </div>`;
+    }).join('');
 }
 
 function previewPrompt(idx) {
