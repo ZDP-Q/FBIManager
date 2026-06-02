@@ -57,11 +57,11 @@ function getAvatarColor(name) {
 
 function formatBeijingTime(isoStr) {
     if (!isoStr) return '-';
-    // Parse as UTC, then display in Asia/Shanghai (UTC+8)
-    const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
+    // Normalize +0000 to Z for consistent parsing
+    const normalized = isoStr.replace(/\+0000$/, 'Z');
+    const d = new Date(normalized);
     if (isNaN(d.getTime())) return isoStr;
-    const opts = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' };
-    return d.toLocaleString('zh-CN', opts);
+    return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
 }
 
 async function loadUserRanking() {
