@@ -1,6 +1,7 @@
 """Video analysis, batch analyze, and push endpoints."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -193,6 +194,9 @@ async def batch_analyze_videos():
             await _do_analyze(post["id"], True, per_video_key)
             update_task(per_video_key, status=STATUS_SUCCESS, progress=100)
             results["success"] += 1
+        except asyncio.CancelledError:
+            update_task(per_video_key, status=STATUS_CANCELED, message="批量分析被取消")
+            raise
         except Exception as exc:
             update_task(per_video_key, status=STATUS_FAILED, error=str(exc)[:200])
             results["failed"] += 1

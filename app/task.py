@@ -144,8 +144,10 @@ async def create_task_if_not_running(task_id: str, name: str) -> bool:
             return False
         create_task(task_id, name)
         update_task(task_id, status=STATUS_RUNNING)
-        # Periodically clean up stale locks (safe: we hold task-specific lock, not _global_lock)
-        await _cleanup_stale_locks_internal()
+        try:
+            await _cleanup_stale_locks_internal()
+        except Exception:
+            logger.warning("[task] Stale lock cleanup failed for %s (non-fatal)", task_id)
         return True
 
 
@@ -188,4 +190,7 @@ async def task_runner(task_id: str, name: str):
         raise
     except Exception as exc:
         update_task(task_id, status=STATUS_FAILED, error=str(exc)[:500])
+        raise
+    except BaseException as exc:
+        update_task(task_id, status=STATUS_FAILED, error=f"{type(exc).__name__}: {str(exc)[:400]}")
         raise
