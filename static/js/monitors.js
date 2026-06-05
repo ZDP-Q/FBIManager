@@ -133,7 +133,7 @@ async function toggleMonitorEnabled(id, btn) {
     }
 }
 async function saveMonitor(id) {
-    const interval = parseInt(document.getElementById(`interval-${id}`)?.value || '300', 10);
+    const interval = parseInt(document.getElementById(`interval-${id}`)?.value || '1800', 10);
 
     try {
         const r = await fetch(`/api/monitors/${id}`, {
@@ -252,7 +252,7 @@ function applyMonitorState(monitor) {
     if (enabledText) enabledText.textContent = monitor.enabled ? '监控中' : '已暂停';
 
     const intervalBadge = document.getElementById(`badge-interval-${id}`);
-    if (intervalBadge) intervalBadge.textContent = `每 ${monitor.interval_seconds}s`;
+    if (intervalBadge) intervalBadge.textContent = `每 ${Math.floor(monitor.interval_seconds / 60)}分钟`;
 
     const intervalInput = document.getElementById(`interval-${id}`);
     if (intervalInput && document.activeElement !== intervalInput) {
@@ -337,7 +337,7 @@ modal.addEventListener('click', (e) => {
 
 document.getElementById('btn-create-monitor')?.addEventListener('click', async () => {
     const postId   = document.getElementById('new-post-select').value;
-    const interval = parseInt(document.getElementById('new-interval').value || '300');
+    const interval = parseInt(document.getElementById('new-interval').value || '1800');
     if (!postId) { showAlert('请选择一个帖子。', 'warning'); return; }
     const btn = document.getElementById('btn-create-monitor');
     btn.disabled = true; btn.textContent = '创建中...';

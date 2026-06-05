@@ -405,7 +405,7 @@ window.addMonitor = async function(postId, btn) {
         const r = await fetch('/api/monitors', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ post_id: postId, interval_seconds: 300 }),
+            body: JSON.stringify({ post_id: postId, interval_seconds: 1800 }),
         });
         if (!r.ok) throw new Error((await r.json()).detail || '创建监控失败');
         

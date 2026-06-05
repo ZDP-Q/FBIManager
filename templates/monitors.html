@@ -51,7 +51,7 @@
                             <span class="badge-dot"></span>
                             <span id="enabled-text-{{ m.id }}">{% if m.enabled %}监控中{% else %}已暂停{% endif %}</span>
                         </span>
-                        <span class="badge badge-info" id="badge-interval-{{ m.id }}">每 {{ m.interval_seconds }}s</span>
+                        <span class="badge badge-info" id="badge-interval-{{ m.id }}">每 {{ (m.interval_seconds // 60) }}分钟</span>
                     </div>
                 </div>
                 <div class="monitor-actions">
@@ -132,7 +132,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="new-interval">抓取间隔（秒，最少 1）</label>
-                    <input type="number" id="new-interval" min="1" value="300">
+                    <input type="number" id="new-interval" min="1" value="1800">
                 </div>
             </div>
             <p class="text-xs text-muted">监控会全量抓取所有深度的评论，并对尚未回复的访客评论进行 AI 自动互动（持续聊天模式）。</p>
