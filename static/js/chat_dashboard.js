@@ -171,7 +171,7 @@ function setSyncButtonsState(syncing) {
     if (btnStop) btnStop.style.display = syncing ? '' : 'none';
 }
 
-function startSync(isFull = false) {
+async function startSync(isFull = false) {
     setSyncButtonsState(true);
     const taskId = getChatSyncTaskId();
 
@@ -184,11 +184,10 @@ function startSync(isFull = false) {
         detail: '#sync-detail',
         onComplete: (data) => {
             setSyncButtonsState(false);
-            const result = data.result || {};
             if (data.canceled) {
                 showAlert('同步已停止。', 'info');
             } else {
-                showAlert(`${isFull ? '全量' : '增量'}同步完成：${result.conversations ?? 0} 个会话，${result.messages ?? 0} 条消息。`, 'success');
+                showAlert(data.msg || `${isFull ? '全量' : '增量'}同步完成`, 'success');
             }
             loadDashboard();
         },
@@ -204,7 +203,15 @@ function startSync(isFull = false) {
         },
     });
     // Trigger sync via POST, then poll for progress
-    fetch(`/api/chats/sync?full=${isFull ? 'true' : 'false'}`, { method: 'POST' }).catch(() => {});
+    try {
+        const res = await fetch(`/api/chats/sync?full=${isFull ? 'true' : 'false'}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'already_running') {
+            setSyncButtonsState(false);
+            showAlert(data.msg || '同步任务已在运行中', 'warning');
+            return;
+        }
+    } catch (_) {}
     chatSyncProgress.startPolling();
 }
 
@@ -232,7 +239,7 @@ async function checkOngoingSync() {
             if (data.canceled) {
                 showAlert('同步已停止。', 'info');
             } else {
-                showAlert('同步已在后台完成', 'success');
+                showAlert(data.msg || '同步已在后台完成', 'success');
             }
             loadDashboard();
         },

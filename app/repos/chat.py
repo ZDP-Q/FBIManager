@@ -50,7 +50,11 @@ def upsert_page_conversation(
                     updated_time = excluded.updated_time,
                     unread_count = excluded.unread_count,
                     participants_json = excluded.participants_json,
-                    synced_at = CURRENT_TIMESTAMP
+                    synced_at = CASE
+                        WHEN page_conversations.updated_time != excluded.updated_time
+                        THEN CURRENT_TIMESTAMP
+                        ELSE page_conversations.synced_at
+                    END
                 """,
                 (conv_id, page_id, updated_time, unread_count, participants_json),
             )
@@ -108,6 +112,16 @@ def get_latest_conversation_update(page_id: str) -> str | None:
             "SELECT MAX(updated_time) as last_update FROM page_conversations WHERE page_id = ?", (page_id,)
         ).fetchone()
         return row["last_update"] if row else None
+
+
+def get_last_sync_time(page_id: str) -> str | None:
+    """Return the MAX(synced_at) for this page — the wall-clock time of the last sync."""
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT MAX(synced_at) as last_sync FROM page_conversations WHERE page_id = ?",
+            (page_id,),
+        ).fetchone()
+        return row["last_sync"] if row else None
 
 
 def get_latest_message_time(conversation_id: str) -> str | None:

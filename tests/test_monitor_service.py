@@ -57,139 +57,50 @@ class TestMonitorServiceBasics:
         assert svc._task.cancelled() or svc._task.done()
 
 
-class TestProcessComment:
-    """Test _process_comment in isolation."""
+class TestCommentCounting:
+    """Test the new counting and random selection logic."""
 
-    @pytest.fixture
-    def setup(self, mock_repos):
-        from app.repositories import get_post, get_page_profile, upsert_comment
-        from tests.factories import make_facebook_comment
-        from app.config import AppConfig
+    def test_count_all_comments(self, mock_repos):
+        from app.repositories import count_all_comments
+        # mock_repos seeds 3 comments
+        assert count_all_comments(mock_repos["post_id"]) == 3
 
-        upsert_comment(mock_repos["post_id"], None, make_facebook_comment(
-            comment_id="pc1", message="Test comment",
-            author_id="user2", author_name="Tester"))
+    def test_count_replied_comments_empty(self, mock_repos):
+        from app.repositories import count_replied_comments
+        assert count_replied_comments(mock_repos["post_id"]) == 0
 
-        return AppConfig(
-            account_id=1, account_name="Test",
-            page_access_token="tok", verify_token="v",
-            page_id=mock_repos["page_id"],
-            reply_api_base_url="https://api.test.com/v1",
-            reply_api_key="sk-test", reply_model="gpt-4",
-        )
+    def test_count_replied_comments_after_marking(self, mock_repos):
+        from app.repositories import count_replied_comments, mark_replied
+        mark_replied("c0", mock_repos["post_id"], mock_repos["monitor_id"], "reply")
+        assert count_replied_comments(mock_repos["post_id"]) == 1
 
-    @pytest.mark.asyncio
-    async def test_process_comment_reply_success(self, setup, mock_repos):
-        from app.services.monitor import MonitorService
-        from app.services.facebook import FacebookService
-        from app.services.ai_reply import AIReplyService
-        from app.repositories import get_post, get_page_profile
+    def test_list_unreplied_comments(self, mock_repos):
+        from app.repositories import list_unreplied_comments
+        unreplied = list_unreplied_comments(mock_repos["post_id"])
+        assert len(unreplied) == 3
 
-        svc = MonitorService()
-        fb = FacebookService(setup)
-        ai = AIReplyService(setup)
-        post = get_post(mock_repos["post_id"]) or {}
-        profile = get_page_profile(page_id=mock_repos["page_id"]) or {}
+    def test_list_unreplied_excludes_replied(self, mock_repos):
+        from app.repositories import list_unreplied_comments, mark_replied
+        mark_replied("c0", mock_repos["post_id"], mock_repos["monitor_id"], "reply")
+        unreplied = list_unreplied_comments(mock_repos["post_id"])
+        assert len(unreplied) == 2
+        ids = {c["id"] for c in unreplied}
+        assert "c0" not in ids
 
-        comment = {
-            "id": "pc1", "message": "Test comment",
-            "from": {"id": "user2", "name": "Tester"},
-            "created_time": "2025-06-01T10:00:00+0000",
-            "replies": {},
-        }
+    def test_list_unreplied_excludes_author(self, mock_repos):
+        from app.repositories import list_unreplied_comments
+        # All test comments have author_id "user1", exclude it
+        unreplied = list_unreplied_comments(mock_repos["post_id"], exclude_author_id="user1")
+        assert len(unreplied) == 0
 
-        # Mock the AI and Facebook calls
-        fb.send_reply = AsyncMock(return_value={"id": "fb_reply_1"})
-        ai.generate_reply = AsyncMock(return_value="Thanks for your comment!")
-        fb.fetch_replies_for_comment = AsyncMock(return_value=[])
-
-        replied, skipped, already = await svc._process_comment(
-            comment=comment, post=post, profile=profile,
-            monitor_id=mock_repos["monitor_id"],
-            facebook=fb, ai=ai, depth=1,
-            parent_message="", canonical_page_id=mock_repos["page_id"],
-            previous_replies=[], video_analysis="",
-        )
-
-        assert replied == 1
-        assert skipped == 0
-        # Verify send_reply was called
-        fb.send_reply.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_process_comment_already_replied_local(self, setup, mock_repos):
-        from app.services.monitor import MonitorService
-        from app.services.facebook import FacebookService
-        from app.services.ai_reply import AIReplyService
-        from app.repositories import get_post, get_page_profile, mark_replied
-
-        mark_replied("pc1", mock_repos["post_id"], mock_repos["monitor_id"], "Old reply")
-
-        svc = MonitorService()
-        fb = FacebookService(setup)
-        ai = AIReplyService(setup)
-        post = get_post(mock_repos["post_id"]) or {}
-        profile = get_page_profile(page_id=mock_repos["page_id"]) or {}
-
-        comment = {
-            "id": "pc1", "message": "Test comment",
-            "from": {"id": "user2", "name": "Tester"},
-            "created_time": "2025-06-01T10:00:00+0000",
-            "replies": {},
-        }
-
-        fb.send_reply = AsyncMock()
-        ai.generate_reply = AsyncMock()
-
-        replied, skipped, already = await svc._process_comment(
-            comment=comment, post=post, profile=profile,
-            monitor_id=mock_repos["monitor_id"],
-            facebook=fb, ai=ai, depth=1,
-            parent_message="", canonical_page_id=mock_repos["page_id"],
-            previous_replies=[], video_analysis="",
-        )
-
-        assert already == 1
-        assert replied == 0
-        fb.send_reply.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_process_comment_page_has_existing_reply(self, setup, mock_repos):
-        from app.services.monitor import MonitorService
-        from app.services.facebook import FacebookService
-        from app.services.ai_reply import AIReplyService
-        from app.repositories import get_post, get_page_profile
-
-        svc = MonitorService()
-        fb = FacebookService(setup)
-        ai = AIReplyService(setup)
-        post = get_post(mock_repos["post_id"]) or {}
-        profile = get_page_profile(page_id=mock_repos["page_id"]) or {}
-
-        comment = {
-            "id": "pc1", "message": "Test comment",
-            "from": {"id": "user2", "name": "Tester"},
-            "created_time": "2025-06-01T10:00:00+0000",
-            "replies": {"data": [{
-                "id": "existing_reply",
-                "from": {"id": mock_repos["page_id"], "name": "TestPage"},
-            }]},
-        }
-
-        fb.send_reply = AsyncMock()
-        ai.generate_reply = AsyncMock()
-
-        replied, skipped, already = await svc._process_comment(
-            comment=comment, post=post, profile=profile,
-            monitor_id=mock_repos["monitor_id"],
-            facebook=fb, ai=ai, depth=1,
-            parent_message="", canonical_page_id=mock_repos["page_id"],
-            previous_replies=[], video_analysis="",
-        )
-
-        assert skipped == 1
-        assert replied == 0
-        fb.send_reply.assert_not_called()
+    def test_10_percent_target(self, mock_repos):
+        """10% of 3 comments = 0 (floor). With 10 comments, target = 1."""
+        total = 3
+        assert total // 10 == 0
+        total = 10
+        assert total // 10 == 1
+        total = 134
+        assert total // 10 == 13
 
 
 class TestMonitorTick:

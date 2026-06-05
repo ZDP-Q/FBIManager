@@ -166,6 +166,32 @@ def count_pending_comments(post_id: str) -> int:
     return row[0] if row else 0
 
 
+def count_all_comments(post_id: str) -> int:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM comments WHERE post_id = ?", (post_id,)
+        ).fetchone()
+    return row[0] if row else 0
+
+
+def list_unreplied_comments(post_id: str, exclude_author_id: str = "") -> list[dict[str, Any]]:
+    """List comments that are not replied yet and not from the page itself."""
+    query = """
+        SELECT c.id, c.author_name, c.author_id, c.message
+        FROM comments c
+        LEFT JOIN replied_comments r ON c.id = r.comment_id
+        WHERE c.post_id = ? AND r.comment_id IS NULL
+    """
+    params: list[Any] = [post_id]
+    if exclude_author_id:
+        query += " AND c.author_id != ?"
+        params.append(exclude_author_id)
+    query += " AND (c.message IS NOT NULL AND c.message != '') ORDER BY RANDOM()"
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_oldest_pending_comment_time(post_id: str) -> str | None:
     with get_connection() as connection:
         row = connection.execute(
@@ -220,6 +246,14 @@ def has_replied(comment_id: str) -> bool:
             "SELECT 1 FROM replied_comments WHERE comment_id = ?", (comment_id,)
         ).fetchone()
     return row is not None
+
+
+def count_replied_comments(post_id: str) -> int:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM replied_comments WHERE post_id = ?", (post_id,)
+        ).fetchone()
+    return row[0] if row else 0
 
 
 def mark_replied(comment_id: str, post_id: str, monitor_id: int | None, reply_message: str) -> None:

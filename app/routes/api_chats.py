@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
 
 from app.config import load_config
 from app.repositories import (
@@ -42,9 +41,5 @@ async def sync_chats_api(full: bool = False):
     page_id = get_canonical_page_id(config.page_id)
     fb_service = FacebookService(config)
     sync_service = ChatSyncService(fb_service)
-
-    async def event_generator():
-        async for event in sync_service.sync_all_chats(page_id, full_sync=full):
-            yield event
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    result = await sync_service.start_sync(page_id, full_sync=full)
+    return result
