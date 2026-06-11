@@ -28,6 +28,7 @@ class TaskProgress {
         this._eventSource = null;
         this._pollTimer = null;
         this._done = false;
+        this._seenRunning = false;
     }
 
     _show() {
@@ -77,8 +78,14 @@ class TaskProgress {
 
         const handler = (e) => {
             const data = JSON.parse(e.data);
-            this._updateUI(data);
-            if (data.done) this._handleDone(data);
+            if (data.done) {
+                if (this._seenRunning) {
+                    this._handleDone(data);
+                }
+            } else {
+                this._seenRunning = true;
+                this._updateUI(data);
+            }
         };
 
         if (options.eventName) {
@@ -106,12 +113,18 @@ class TaskProgress {
         this.stop();
 
         const poll = async () => {
+            if (this._done) return;
             try {
                 const res = await fetch(`/api/sync/status?task=${encodeURIComponent(this.taskId)}`);
                 const data = await res.json();
                 if (!data || data.done) {
-                    this._handleDone(data || { error: true, msg: '任务不存在' });
+                    // Only fire _handleDone if we've seen the task running,
+                    // otherwise this is a stale "not found" response before the task was created.
+                    if (this._seenRunning) {
+                        this._handleDone(data || { error: true, msg: '任务不存在' });
+                    }
                 } else {
+                    this._seenRunning = true;
                     this._updateUI(data);
                 }
             } catch {
