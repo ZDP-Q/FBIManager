@@ -201,10 +201,12 @@ async function startSync(isFull = false) {
             } else {
                 showAlert(data.msg || `${isFull ? '全量' : '增量'}同步完成`, 'success');
             }
+            chatSyncProgress._hide();
             loadDashboard();
         },
         onError: (msg) => {
             setSyncButtonsState(false);
+            chatSyncProgress._hide();
             showAlert(msg || '同步失败', 'error');
         },
         onProgress: (data) => {
@@ -253,10 +255,12 @@ async function checkOngoingSync() {
             } else {
                 showAlert(data.msg || '同步已在后台完成', 'success');
             }
+            chatSyncProgress._hide();
             loadDashboard();
         },
         onError: (msg) => {
             setSyncButtonsState(false);
+            chatSyncProgress._hide();
             showAlert(msg || '同步失败', 'error');
         },
         onProgress: (data) => {
