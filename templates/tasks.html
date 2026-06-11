@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}任务中心{% endblock %}
+{% block body_class %}{% endblock %}
+{% block nav_tasks %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">任务中心</h1>
+        <p class="page-subtitle">查看和管理所有同步、分析、监控任务的执行状态。</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-outline btn-sm" id="btn-refresh" title="刷新">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: -2px;"><path d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36a.25.25 0 01.192-.41zm-11 2h3.932a.25.25 0 00.192-.41L2.692 6.23a.25.25 0 00-.384 0L.342 8.59A.25.25 0 00.534 9z"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 11-.771-.636A6.002 6.002 0 0014 8a.5.5 0 01-1 0A5.002 5.002 0 008 3zM1.5 8a.5.5 0 01-.5-.5A5.002 5.002 0 017.071 3.343a.5.5 0 11.771.636A6.002 6.002 0 002 7.5a.5.5 0 01-.5.5z"/></svg>
+            刷新
+        </button>
+        <button class="btn btn-outline btn-sm" id="btn-cleanup" title="清理超过24小时的已完成任务">清理历史</button>
+    </div>
+</div>
+
+<div id="task-alert" class="alert"></div>
+
+<!-- Task Type Tabs -->
+<div class="task-type-tabs">
+    <button class="task-tab active" data-type="">
+        <span class="task-tab-label">全部</span>
+        <span class="task-tab-count" id="count-all">0</span>
+    </button>
+    <button class="task-tab" data-type="sync">
+        <span class="task-tab-label">同步任务</span>
+        <span class="task-tab-count" id="count-sync">0</span>
+    </button>
+    <button class="task-tab" data-type="analysis">
+        <span class="task-tab-label">分析任务</span>
+        <span class="task-tab-count" id="count-analysis">0</span>
+    </button>
+    <button class="task-tab" data-type="monitor">
+        <span class="task-tab-label">监控任务</span>
+        <span class="task-tab-count" id="count-monitor">0</span>
+    </button>
+</div>
+
+<!-- Status Sub-filters -->
+<div class="task-status-filters">
+    <button class="task-filter active" data-status="">
+        全部
+        <span class="task-filter-count" id="fcount-all">0</span>
+    </button>
+    <button class="task-filter" data-status="running">
+        <span class="status-dot status-running"></span>进行中
+        <span class="task-filter-count" id="fcount-running">0</span>
+    </button>
+    <button class="task-filter" data-status="success">
+        <span class="status-dot status-success"></span>已完成
+        <span class="task-filter-count" id="fcount-success">0</span>
+    </button>
+    <button class="task-filter" data-status="failed">
+        <span class="status-dot status-failed"></span>失败
+        <span class="task-filter-count" id="fcount-failed">0</span>
+    </button>
+    <button class="task-filter" data-status="canceled">
+        <span class="status-dot status-canceled"></span>已取消
+        <span class="task-filter-count" id="fcount-canceled">0</span>
+    </button>
+</div>
+
+<!-- Task List -->
+<div id="task-list" class="task-list">
+    <div class="task-empty" id="task-empty">
+        <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor" opacity="0.3"><path d="M2 2.5a.5.5 0 01.5-.5h11a.5.5 0 010 1h-11a.5.5 0 01-.5-.5zm0 3a.5.5 0 01.5-.5h11a.5.5 0 010 1h-11a.5.5 0 01-.5-.5zm0 3a.5.5 0 01.5-.5h5a.5.5 0 010 1h-5a.5.5 0 01-.5-.5zm8.5 2.5a.5.5 0 01.5-.5h1a.5.5 0 010 1h-1a.5.5 0 01-.5-.5zM1 14.5A1.5 1.5 0 012.5 13h11a1.5 1.5 0 010 3h-11A1.5 1.5 0 011 14.5z"/></svg>
+        <p>暂无任务记录</p>
+    </div>
+</div>
+
+<!-- Pagination -->
+<div id="task-pagination" class="task-pagination" style="display: none;">
+    <button class="btn btn-outline btn-sm" id="btn-prev" disabled>上一页</button>
+    <span id="page-info" class="text-sm text-muted"></span>
+    <button class="btn btn-outline btn-sm" id="btn-next" disabled>下一页</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/tasks.js"></script>
+{% endblock %}

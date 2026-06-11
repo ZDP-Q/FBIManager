@@ -15,7 +15,7 @@ from app.repositories import (
     check_message_exists
 )
 
-from app.task import create_task_if_not_running, update_task, heartbeat_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
+from app.task import create_task_if_not_running, update_task, heartbeat_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED, TYPE_SYNC
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -39,7 +39,7 @@ class ChatSyncService:
     async def start_sync(self, page_id: str, full_sync: bool = False) -> dict:
         """Start a background sync worker. Returns immediately with status dict."""
         self.task_key = f"chat_sync_{page_id}"
-        created = await create_task_if_not_running(self.task_key, "聊天同步")
+        created = await create_task_if_not_running(self.task_key, "聊天同步", task_type=TYPE_SYNC)
         if not created:
             return {"status": "already_running", "msg": "同步任务已在运行中，请等待完成后再试"}
         asyncio.create_task(self._run_sync_worker(page_id, full_sync))
@@ -48,7 +48,7 @@ class ChatSyncService:
     async def sync_all_chats(self, page_id: str, full_sync: bool = False) -> AsyncGenerator[str, None]:
         """Progress generator for SSE. It starts the background worker if not already running."""
         self.task_key = f"chat_sync_{page_id}"
-        created = await create_task_if_not_running(self.task_key, "聊天同步")
+        created = await create_task_if_not_running(self.task_key, "聊天同步", task_type=TYPE_SYNC)
         if not created:
             yield "event: progress\ndata: " + json.dumps({
                 "done": True, "error": True,
@@ -108,7 +108,7 @@ class ChatSyncService:
                 after = ""
                 stop_folder_sync = False
                 logger.info("[chat_sync] Phase 1 - Scanning folder: %s", folder)
-                
+
                 while not stop_folder_sync:
                     params = {
                         "fields": "id,updated_time,unread_count,participants{id,name,picture.width(100).height(100)}",
@@ -126,7 +126,8 @@ class ChatSyncService:
                         conv_id = conv["id"]
                         updated_time = conv.get("updated_time")
 
-                        # Check BEFORE upsert — read the old value from DB
+                        # In incremental mode, check if conversation has changed.
+                        # API returns newest-first, so once we hit an unchanged one, stop.
                         has_changed = True
                         if not full_sync:
                             stored_updated = get_conversation_updated_time(conv_id)
@@ -134,7 +135,6 @@ class ChatSyncService:
                                 has_changed = False
 
                         if has_changed:
-                            # Conversation is new or has new messages — add to sync set
                             if conv_id not in discovered_conv_set:
                                 discovered_conv_set.add(conv_id)
                                 upsert_page_conversation(
@@ -145,12 +145,10 @@ class ChatSyncService:
                                     participants_json=json.dumps(conv.get("participants", {}))
                                 )
                         else:
-                            # Conversation hasn't changed — since API returns newest-first,
-                            # all subsequent conversations are also unchanged. Stop scanning.
                             if not full_sync:
                                 stop_folder_sync = True
                                 break
-                    
+
                     if stop_folder_sync:
                         break
 

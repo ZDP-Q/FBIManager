@@ -19,6 +19,11 @@ logger = logging.getLogger("uvicorn.error")
 # Status constants
 STATUS_PENDING = "pending"
 
+# Task type constants
+TYPE_SYNC = "sync"
+TYPE_ANALYSIS = "analysis"
+TYPE_MONITOR = "monitor"
+
 # Lock for atomic check-and-create operations (prevents TOCTOU race conditions)
 _task_locks: dict[str, asyncio.Lock] = {}
 _global_lock = asyncio.Lock()
@@ -39,18 +44,20 @@ _TERMINAL_STATUSES = {STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED}
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    """Return current UTC time as a string compatible with SQLite datetime() comparisons."""
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def create_task(task_id: str, name: str) -> dict[str, Any]:
+def create_task(task_id: str, name: str, task_type: str = "") -> dict[str, Any]:
     """Create a new task record. If a terminal task with the same ID exists, reset it."""
     now = _now()
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO tasks (id, name, status, progress, message, error, result, started_at, updated_at, created_at)
-               VALUES (?, ?, ?, 0, '', '', '{}', ?, ?, ?)
+            """INSERT INTO tasks (id, name, task_type, status, progress, message, error, result, started_at, updated_at, created_at)
+               VALUES (?, ?, ?, ?, 0, '', '', '{}', ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name,
+                 task_type = excluded.task_type,
                  status = excluded.status,
                  progress = 0,
                  message = '',
@@ -60,7 +67,7 @@ def create_task(task_id: str, name: str) -> dict[str, Any]:
                  ended_at = NULL,
                  updated_at = excluded.updated_at,
                  created_at = excluded.created_at""",
-            (task_id, name, STATUS_PENDING, now, now, now),
+            (task_id, name, task_type, STATUS_PENDING, now, now, now),
         )
     return get_task(task_id)
 
@@ -110,9 +117,13 @@ _STALE_THRESHOLD_SECONDS = 600  # 10 minutes
 
 
 def heartbeat_task(task_id: str) -> None:
-    """Refresh a task's updated_at without changing any other fields. Call from active workers."""
+    """Refresh a task's updated_at without changing any other fields. Call from active workers.
+    Skips tasks in terminal states to avoid preventing cleanup."""
     with get_connection() as conn:
-        conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_now(), task_id))
+        conn.execute(
+            "UPDATE tasks SET updated_at = ? WHERE id = ? AND status NOT IN (?, ?, ?)",
+            (_now(), task_id, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED),
+        )
 
 
 def _auto_fail_if_stale(task_id: str, task_dict: dict[str, Any]) -> None:
@@ -171,13 +182,13 @@ def is_task_running(task_id: str) -> bool:
     return task is not None and task["status"] == STATUS_RUNNING
 
 
-async def create_task_if_not_running(task_id: str, name: str) -> bool:
+async def create_task_if_not_running(task_id: str, name: str, task_type: str = "") -> bool:
     """Atomically check if task is running and create it if not. Returns True if created."""
     lock = await _get_task_lock(task_id)
     async with lock:
         if is_task_running(task_id):
             return False
-        create_task(task_id, name)
+        create_task(task_id, name, task_type)
         update_task(task_id, status=STATUS_RUNNING)
         try:
             await _cleanup_stale_locks_internal()
@@ -196,7 +207,9 @@ async def _cleanup_stale_locks_internal() -> None:
 
 
 def cleanup_tasks(older_than_hours: int = 24) -> int:
-    """Delete completed tasks older than the given hours. Returns count deleted."""
+    """Delete completed tasks older than the given hours. Returns count deleted.
+    Clamped to 1-8760 hours (1 year) to prevent accidental mass deletion."""
+    older_than_hours = max(1, min(older_than_hours, 8760))
     with get_connection() as conn:
         cursor = conn.execute(
             "DELETE FROM tasks WHERE status IN (?, ?, ?) AND updated_at < datetime('now', ?)",
@@ -206,26 +219,126 @@ def cleanup_tasks(older_than_hours: int = 24) -> int:
 
 
 @asynccontextmanager
-async def task_runner(task_id: str, name: str):
+async def task_runner(task_id: str, name: str, task_type: str = ""):
     """Async context manager that manages task lifecycle.
 
     Usage:
-        async with task_runner("post_sync", "帖子同步"):
+        async with task_runner("post_sync", "帖子同步", task_type="sync"):
             # do work, call update_task(task_id, progress=X, message=Y) periodically
         # On normal exit: status → success
         # On exception: status → failed, error set
     """
-    create_task(task_id, name)
-    update_task(task_id, status=STATUS_RUNNING)
+    created = await create_task_if_not_running(task_id, name, task_type)
     try:
         yield
-        update_task(task_id, status=STATUS_SUCCESS, progress=100)
+        if created:
+            update_task(task_id, status=STATUS_SUCCESS, progress=100)
     except asyncio.CancelledError:
-        update_task(task_id, status=STATUS_CANCELED, message="任务被取消")
+        if created:
+            update_task(task_id, status=STATUS_CANCELED, message="任务被取消")
         raise
     except Exception as exc:
-        update_task(task_id, status=STATUS_FAILED, error=str(exc)[:500])
+        if created:
+            update_task(task_id, status=STATUS_FAILED, error=str(exc)[:500])
         raise
     except BaseException as exc:
-        update_task(task_id, status=STATUS_FAILED, error=f"{type(exc).__name__}: {str(exc)[:400]}")
+        if created:
+            update_task(task_id, status=STATUS_FAILED, error=f"{type(exc).__name__}: {str(exc)[:400]}")
         raise
+
+
+def list_tasks(
+    task_type: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """List tasks with optional type/status filters, ordered by created_at DESC."""
+    conditions: list[str] = []
+    params: list[Any] = []
+    if task_type:
+        conditions.append("task_type = ?")
+        params.append(task_type)
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    # Clamp limit and offset to safe ranges
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    params.extend([limit, offset])
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM tasks {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params,
+        ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["result"] = json.loads(d.get("result", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Auto-detect stale running tasks (same as get_task)
+        if d["status"] == STATUS_RUNNING:
+            _auto_fail_if_stale(d["id"], d)
+        result.append(d)
+    return result
+
+
+def count_tasks(task_type: str | None = None, status: str | None = None) -> int:
+    """Count tasks with optional type/status filters."""
+    conditions: list[str] = []
+    params: list[Any] = []
+    if task_type:
+        conditions.append("task_type = ?")
+        params.append(task_type)
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    with get_connection() as conn:
+        row = conn.execute(f"SELECT COUNT(*) FROM tasks {where}", params).fetchone()
+    return row[0] if row else 0
+
+
+def get_task_summary() -> dict[str, dict[str, int]]:
+    """Get task counts grouped by type × status for overview cards.
+
+    Returns:
+        {
+            "sync": {"running": 1, "success": 10, "failed": 2, "canceled": 0, "pending": 0},
+            "analysis": {"running": 0, "success": 5, "failed": 1, "canceled": 0, "pending": 0},
+            "monitor": {"running": 2, "success": 20, "failed": 3, "canceled": 0, "pending": 0},
+            "other": {"running": 0, "success": 0, "failed": 0, "canceled": 0, "pending": 0},
+        }
+    """
+    known_types = [TYPE_SYNC, TYPE_ANALYSIS, TYPE_MONITOR]
+    statuses = [STATUS_RUNNING, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED, STATUS_PENDING]
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT task_type, status, COUNT(*) as cnt FROM tasks GROUP BY task_type, status"
+        ).fetchall()
+    counts: dict[str, dict[str, int]] = {}
+    for row in rows:
+        tt = row["task_type"] or ""
+        st = row["status"]
+        cnt = row["cnt"]
+        if tt not in counts:
+            counts[tt] = {}
+        counts[tt][st] = cnt
+    summary: dict[str, dict[str, int]] = {}
+    for t in known_types:
+        summary[t] = {}
+        for s in statuses:
+            summary[t][s] = counts.get(t, {}).get(s, 0)
+    # Aggregate unknown/empty task_type into "other"
+    other_counts: dict[str, int] = {}
+    for tt, st_counts in counts.items():
+        if tt not in known_types:
+            for st, cnt in st_counts.items():
+                other_counts[st] = other_counts.get(st, 0) + cnt
+    summary["other"] = {}
+    for s in statuses:
+        summary["other"][s] = other_counts.get(s, 0)
+    return summary

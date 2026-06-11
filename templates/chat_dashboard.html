@@ -183,6 +183,21 @@
     </div>
 </div>
 
+<div class="stats-grid" id="active-stats-grid">
+    <div class="stat-card">
+        <div class="stat-value" id="stat-active-24h" style="color: #059669;">-</div>
+        <div class="stat-label">24小时活跃人数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-active-7d" style="color: #2563eb;">-</div>
+        <div class="stat-label">7天活跃人数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-active-15d" style="color: #7c3aed;">-</div>
+        <div class="stat-label">15天活跃人数</div>
+    </div>
+</div>
+
 <div class="ranking-card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
         <h3>🏆 用户互动活跃度排名</h3>
@@ -213,5 +228,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/chat_dashboard.js?v=page-sync-v1"></script>
+<script src="/static/js/chat_dashboard.js?v=nocache-v1"></script>
 {% endblock %}

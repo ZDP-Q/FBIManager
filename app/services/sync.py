@@ -8,7 +8,7 @@ from app.config import AppConfig
 from app.repositories import replace_comments_for_post, upsert_page_profile, upsert_post, list_posts, get_canonical_page_id
 from app.services.facebook import FacebookService
 from app.services.attachments import download_comment_attachments
-from app.task import create_task_if_not_running, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED, STATUS_RUNNING
+from app.task import create_task_if_not_running, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED, STATUS_RUNNING, TYPE_SYNC
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -30,7 +30,7 @@ class SyncService:
     async def sync_all_gen(self, *, post_limit: int = 6, since: str = "", until: str = "", all_posts: bool = False, sync_comments: bool = True):
         """Progress generator for SSE. It starts the background worker if not already running."""
         logger.info("[sync_all_gen] called with post_limit=%s, all_posts=%s, sync_comments=%s", post_limit, all_posts, sync_comments)
-        created = await create_task_if_not_running("post_sync", "帖子同步")
+        created = await create_task_if_not_running("post_sync", "帖子同步", task_type=TYPE_SYNC)
         if created:
             logger.info("[sync_all_gen] creating task and spawning worker")
             asyncio.create_task(self._run_sync_worker(post_limit, since, until, all_posts, sync_comments))

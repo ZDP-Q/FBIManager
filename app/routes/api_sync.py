@@ -75,6 +75,45 @@ async def get_sync_status_api(task: str):
     }
 
 
+@router.get("/tasks")
+async def list_tasks_api(
+    task_type: str = "",
+    status: str = "",
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List tasks with optional type/status filters. Returns paginated results."""
+    from app.task import list_tasks, count_tasks
+
+    type_filter = task_type if task_type else None
+    status_filter = status if status else None
+
+    tasks = list_tasks(task_type=type_filter, status=status_filter, limit=limit, offset=offset)
+    total = count_tasks(task_type=type_filter, status=status_filter)
+
+    return {
+        "tasks": tasks,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/tasks/summary")
+async def task_summary_api():
+    """Get task counts grouped by type × status for overview cards."""
+    from app.task import get_task_summary
+    return get_task_summary()
+
+
+@router.post("/tasks/cleanup")
+async def cleanup_tasks_api(older_than_hours: int = 24):
+    """Delete completed tasks older than the given hours."""
+    from app.task import cleanup_tasks
+    deleted = cleanup_tasks(older_than_hours)
+    return {"deleted": deleted}
+
+
 @router.get("/tasks/{task_id}")
 async def get_task_api(task_id: str):
     t = _get_task(task_id)

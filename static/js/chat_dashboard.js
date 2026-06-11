@@ -12,16 +12,28 @@ function getChatSyncTaskId() {
 
 async function loadDashboard() {
     try {
-        const r = await fetch('/api/chats/stats');
+        const r = await fetch('/api/chats/stats', { cache: 'no-store' });
         if (!r.ok) throw new Error('获取统计数据失败');
         const data = await r.json();
         currentPageId = data.page_id || '';
+
+        console.log('[chat] API response stats:', data.stats);
 
         // Update Hero Stats
         const s = data.stats;
         document.getElementById('stat-total-users').textContent = (s.total_users || 0).toLocaleString();
         document.getElementById('stat-total-messages').textContent = (s.total_messages || 0).toLocaleString();
         document.getElementById('stat-longest-msg').textContent = (s.longest_msg_count || 0).toLocaleString();
+
+        // Active user stats
+        const el24 = document.getElementById('stat-active-24h');
+        const el7 = document.getElementById('stat-active-7d');
+        const el15 = document.getElementById('stat-active-15d');
+        console.log('[chat] active elements:', el24, el7, el15);
+        console.log('[chat] active values:', s.active_24h, s.active_7d, s.active_15d);
+        if (el24) el24.textContent = (s.active_24h || 0).toLocaleString();
+        if (el7) el7.textContent = (s.active_7d || 0).toLocaleString();
+        if (el15) el15.textContent = (s.active_15d || 0).toLocaleString();
 
         // Load User Ranking
         loadUserRanking();

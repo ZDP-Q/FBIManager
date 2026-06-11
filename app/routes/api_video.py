@@ -117,7 +117,7 @@ async def _do_analyze(post_id: str, force: bool, task_key: str):
 
 @router.post("/posts/{post_id}/analyze")
 async def analyze_post_video(post_id: str, force: bool = False):
-    from app.task import create_task, update_task as _ut, STATUS_SUCCESS as _S, STATUS_FAILED as _F
+    from app.task import create_task, update_task as _ut, STATUS_SUCCESS as _S, STATUS_FAILED as _F, TYPE_ANALYSIS
 
     task_key = f"video_analysis_{post_id}"
 
@@ -126,7 +126,7 @@ async def analyze_post_video(post_id: str, force: bool = False):
         if cached:
             return {"status": "success", "result": cached["content"], "cached": True}
 
-    create_task(task_key, f"视频分析 {post_id}")
+    create_task(task_key, f"视频分析 {post_id}", task_type=TYPE_ANALYSIS)
     _ut(task_key, status="running")
 
     try:
@@ -161,7 +161,7 @@ async def update_post_video_analysis(post_id: str, payload: dict[str, str]):
 
 @router.post("/video/batch-analyze")
 async def batch_analyze_videos():
-    from app.task import create_task, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED
+    from app.task import create_task, update_task, get_task, STATUS_SUCCESS, STATUS_FAILED, STATUS_CANCELED, TYPE_ANALYSIS
 
     config = load_config()
     page_id = get_canonical_page_id(config.page_id)
@@ -174,7 +174,7 @@ async def batch_analyze_videos():
 
     task_key = "batch_video_analysis"
     total = len(unanalyzed)
-    create_task(task_key, "批量视频分析")
+    create_task(task_key, "批量视频分析", task_type=TYPE_ANALYSIS)
     update_task(task_key, status="running", message=f"开始批量分析 {total} 个视频...", progress=0,
                 result={"total": total, "completed": 0})
 
@@ -188,7 +188,7 @@ async def batch_analyze_videos():
         update_task(task_key, message=f"正在分析第 {i+1}/{total} 个视频...", progress=pct,
                     result={"total": total, "completed": i})
         per_video_key = f"video_analysis_{post['id']}"
-        create_task(per_video_key, f"视频分析 {post['id']}")
+        create_task(per_video_key, f"视频分析 {post['id']}", task_type=TYPE_ANALYSIS)
         update_task(per_video_key, status="running")
         try:
             await _do_analyze(post["id"], True, per_video_key)

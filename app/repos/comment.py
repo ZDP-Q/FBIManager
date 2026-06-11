@@ -166,11 +166,14 @@ def count_pending_comments(post_id: str) -> int:
     return row[0] if row else 0
 
 
-def count_all_comments(post_id: str) -> int:
+def count_all_comments(post_id: str, exclude_author_id: str = "") -> int:
+    query = "SELECT COUNT(*) FROM comments WHERE post_id = ?"
+    params: list[Any] = [post_id]
+    if exclude_author_id:
+        query += " AND author_id != ?"
+        params.append(exclude_author_id)
     with get_connection() as connection:
-        row = connection.execute(
-            "SELECT COUNT(*) FROM comments WHERE post_id = ?", (post_id,)
-        ).fetchone()
+        row = connection.execute(query, params).fetchone()
     return row[0] if row else 0
 
 

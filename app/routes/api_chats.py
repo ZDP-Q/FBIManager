@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from app.config import load_config
 from app.repositories import (
@@ -21,11 +22,15 @@ logger = logging.getLogger("uvicorn.error")
 async def get_chat_stats_api():
     config = load_config()
     page_id = get_canonical_page_id(config.page_id)
-    return {
-        "page_id": page_id,
-        "stats": get_chat_dashboard_stats(page_id),
-        "detailed_stats": get_chat_detailed_stats(page_id),
-    }
+    stats = get_chat_dashboard_stats(page_id)
+    return JSONResponse(
+        content={
+            "page_id": page_id,
+            "stats": stats,
+            "detailed_stats": get_chat_detailed_stats(page_id),
+        },
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 @router.get("/chats/user-ranking")

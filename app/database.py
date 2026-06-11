@@ -392,6 +392,13 @@ def _migrate_schema(connection) -> None:
                     connection.execute("UPDATE account_configs SET app_secret = ? WHERE id = (SELECT MIN(id) FROM account_configs)", (row["app_secret"],))
         _set_schema_version(connection, 13)
 
+    # v14: add task_type to tasks for Task Center categorization
+    if current < 14:
+        if not _column_exists(connection, "tasks", "task_type"):
+            connection.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT ''")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_tasks_type_status ON tasks(task_type, status)")
+        _set_schema_version(connection, 14)
+
 
 def _seed_auto_monitor_config_if_needed() -> None:
     with get_connection() as connection:

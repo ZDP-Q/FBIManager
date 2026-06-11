@@ -32,6 +32,7 @@ from app.repositories import (
 from app.services.ai_reply import AIReplyService
 from app.services.attachments import download_comment_attachments
 from app.services.facebook import FacebookService
+from app.task import create_task, update_task as update_task_status, STATUS_SUCCESS, STATUS_FAILED, TYPE_MONITOR
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -73,14 +74,38 @@ class MonitorService:
         monitor = get_monitor(monitor_id)
         if monitor is None:
             raise ValueError(f"Monitor {monitor_id} not found")
+
+        # Guard against concurrent execution of the same monitor
+        if monitor_id in self._running_monitors:
+            raise ValueError(f"Monitor {monitor_id} is already running")
+
         post = get_post(monitor["post_id"]) or {}
         page_id = str(post.get("page_id", ""))
         config = load_config(page_id=page_id)
         facebook = FacebookService(config)
+
+        # Register in unified tasks table (use microsecond precision to avoid collision)
+        ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        task_key = f"monitor_{monitor_id}_{ts}"
+        self._running_monitors.add(monitor_id)
         try:
-            return await self._execute_monitor(monitor, facebook)
+            create_task(task_key, f"监控回复 post={monitor['post_id']}", task_type=TYPE_MONITOR)
+            update_task_status(task_key, status="running", message="手动触发...")
+
+            async with self._semaphore:
+                result = await self._execute_monitor(monitor, facebook, task_key)
+            update_task_status(task_key, status=STATUS_SUCCESS, progress=100,
+                              message=f"回复 {result.get('replied', 0)} 条评论")
+            return result
+        except asyncio.CancelledError:
+            update_task_status(task_key, status=STATUS_CANCELED, message="任务被取消")
+            raise
+        except Exception as exc:
+            update_task_status(task_key, status=STATUS_FAILED, error=str(exc)[:500])
+            raise
         finally:
             await facebook.close()
+            self._running_monitors.discard(monitor_id)
 
     # ------------------------------------------------------------------
     # Internal loop
@@ -133,7 +158,8 @@ class MonitorService:
         # Use system local time for comparison with user-entered "HH:MM"
         now = datetime.now()
         current_time_str = now.strftime("%H:%M")
-        current_minute_key = now.strftime("%Y-%m-%d %H:%M")
+        # Use UTC for dedup key to avoid DST transition issues (double-fire or skip)
+        current_minute_key = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
 
         schedules = list_auto_monitor_schedules()
         for schedule in schedules:
@@ -142,8 +168,10 @@ class MonitorService:
             if schedule["trigger_time"] == current_time_str:
                 if schedule.get("last_triggered_at") != current_minute_key:
                     logger.info("[monitor] auto-monitor schedule triggered for %s", current_time_str)
-                    # Use a task to not block the main loop
-                    asyncio.create_task(self._run_auto_discovery(config["max_posts"]))
+                    # Use a task to not block the main loop — track for cleanup on shutdown
+                    t = asyncio.create_task(self._run_auto_discovery(config["max_posts"]))
+                    self._spawned_tasks.add(t)
+                    t.add_done_callback(self._spawned_tasks.discard)
                     mark_auto_monitor_triggered(schedule["id"], current_minute_key)
 
     async def _run_auto_discovery(self, max_posts: int) -> None:
@@ -195,30 +223,51 @@ class MonitorService:
     async def _safe_execute(self, monitor: dict[str, Any]) -> None:
         monitor_id = monitor["id"]
         self._running_monitors.add(monitor_id)
-        update_monitor(
-            monitor_id,
-            last_run_at=datetime.now(timezone.utc).isoformat(),
-            last_run_status="等待执行...",
-        )
-        post = get_post(monitor["post_id"]) or {}
-        page_id = str(post.get("page_id", ""))
-        config = load_config(page_id=page_id)
-        facebook = FacebookService(config)
+
+        # Register in unified tasks table (use microsecond precision to avoid collision)
+        ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        task_key = f"monitor_{monitor_id}_{ts}"
+        facebook = None
         try:
-            async with self._semaphore:
-                await self._execute_monitor(monitor, facebook)
-        except Exception as exc:
-            logger.exception("[monitor] monitor=%s failed with exception", monitor_id)
+            create_task(task_key, f"监控回复 post={monitor['post_id']}", task_type=TYPE_MONITOR)
+            update_task_status(task_key, status="running", message="等待执行...")
+
             update_monitor(
                 monitor_id,
                 last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_run_status=f"ERROR: {type(exc).__name__}: {str(exc)[:300]}",
+                last_run_status="等待执行...",
             )
+            post = get_post(monitor["post_id"]) or {}
+            page_id = str(post.get("page_id", ""))
+            config = load_config(page_id=page_id)
+            facebook = FacebookService(config)
+            async with self._semaphore:
+                result = await self._execute_monitor(monitor, facebook, task_key)
+            update_task_status(task_key, status=STATUS_SUCCESS, progress=100,
+                              message=f"回复 {result.get('replied', 0)} 条评论")
+        except asyncio.CancelledError:
+            logger.info("[monitor] monitor=%s cancelled", monitor_id)
+            update_task_status(task_key, status=STATUS_CANCELED, message="任务被取消")
+        except Exception as exc:
+            logger.exception("[monitor] monitor=%s failed with exception", monitor_id)
+            try:
+                update_task_status(task_key, status=STATUS_FAILED, error=str(exc)[:500])
+            except Exception:
+                logger.warning("[monitor] failed to update task status for monitor=%s", monitor_id)
+            try:
+                update_monitor(
+                    monitor_id,
+                    last_run_at=datetime.now(timezone.utc).isoformat(),
+                    last_run_status=f"ERROR: {type(exc).__name__}: {str(exc)[:300]}",
+                )
+            except Exception:
+                logger.warning("[monitor] failed to update monitor status for monitor=%s", monitor_id)
         finally:
-            await facebook.close()
+            if facebook:
+                await facebook.close()
             self._running_monitors.discard(monitor_id)
 
-    async def _execute_monitor(self, monitor: dict[str, Any], facebook: FacebookService) -> dict[str, Any]:
+    async def _execute_monitor(self, monitor: dict[str, Any], facebook: FacebookService, task_key: str = "") -> dict[str, Any]:
         monitor_id = monitor["id"]
         post_id = monitor["post_id"]
 
@@ -238,11 +287,13 @@ class MonitorService:
         if not local_comments:
             logger.info("[monitor] monitor=%s: 本地无评论，触发内容中心同步", monitor_id)
             update_monitor(monitor_id, last_run_status="首次运行，正在同步帖子评论...")
+            if task_key:
+                update_task_status(task_key, message="首次运行，正在同步帖子评论...", progress=5)
             from app.services.sync import SyncService
             sync_svc = SyncService(config)
             await sync_svc.sync_post(post_id)
 
-        # Step 1: 增量拉取新评论
+        # Step 1: 增量拉取新评论（仅顶级评论，不需要嵌套回复）
         latest_time = get_latest_comment_time(post_id)
         since_ts: int | None = None
         if latest_time:
@@ -257,7 +308,7 @@ class MonitorService:
         if since_ts:
             logger.info("[monitor] monitor=%s: 增量拉取 since=%s", monitor_id, latest_time)
             new_comments, _ = await facebook.fetch_comments_for_post(
-                post_id, limit=200, max_depth=3, since=since_ts
+                post_id, limit=200, max_depth=1, since=since_ts
             )
             if new_comments:
                 logger.info("[monitor] monitor=%s: 获取到 %d 条新评论", monitor_id, len(new_comments))
@@ -274,11 +325,11 @@ class MonitorService:
         else:
             logger.info("[monitor] monitor=%s: 无本地评论时间戳，跳过远程拉取", monitor_id)
 
-        # Step 2: 计算回复目标 = 总评论数的 10%（向下取整）
+        # Step 2: 计算回复目标 = 非主页评论数的 10%（向下取整）
         profile = get_page_profile(page_id=page_id) or {}
         canonical_page_id = str(profile.get("page_id") or page_id)
 
-        total_comments = count_all_comments(post_id)
+        total_comments = count_all_comments(post_id, exclude_author_id=canonical_page_id)
         replied_count = count_replied_comments(post_id)
         target = total_comments // 10  # 10%, floor
         need = target - replied_count
@@ -286,6 +337,8 @@ class MonitorService:
         status_msg = f"总评论 {total_comments} | 目标 {target} | 已回复 {replied_count} | 需回复 {max(need, 0)}"
         logger.info("[monitor] monitor=%s: %s", monitor_id, status_msg)
         update_monitor(monitor_id, last_run_at=datetime.now(timezone.utc).isoformat(), last_run_status=status_msg)
+        if task_key:
+            update_task_status(task_key, message=status_msg, progress=30)
 
         if need <= 0:
             logger.info("[monitor] monitor=%s: 已达到 10%% 目标，跳过", monitor_id)
@@ -304,6 +357,8 @@ class MonitorService:
             last_run_at=datetime.now(timezone.utc).isoformat(),
             last_run_status=f"正在回复 {len(to_reply)} 条评论...",
         )
+        if task_key:
+            update_task_status(task_key, message=f"正在回复 {len(to_reply)} 条评论...", progress=50)
 
         # Step 4: 逐条回复
         ai = AIReplyService(config)

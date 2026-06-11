@@ -167,3 +167,8 @@ async def schedule_page(request: Request):
         "schedule.html",
         {"request": request, "posts": posts},
     )
+
+
+@router.get("/tasks", response_class=HTMLResponse)
+async def tasks_page(request: Request):
+    return templates.TemplateResponse("tasks.html", {"request": request})

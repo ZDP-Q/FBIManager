@@ -207,12 +207,37 @@ def get_chat_dashboard_stats(page_id: str) -> dict[str, Any]:
         ).fetchone()
         max_streak = streak_row["streak_length"] if (streak_row and streak_row["streak_length"] is not None) else 0
 
+        # Active user counts (based on message activity, excluding page's own messages)
+        # Combined into a single query with conditional aggregation for efficiency.
+        # Normalize created_time: strip timezone suffix and replace 'T' separator with ' '
+        # so that SQLite string comparison with datetime('now') works correctly.
+        # NOTE: Assumes Facebook timestamps are always UTC (+0000). If non-UTC offsets are
+        # ever stored, this comparison will be incorrect — normalize at write time instead.
+        active_row = connection.execute(
+            """
+            SELECT
+                COUNT(DISTINCT CASE WHEN REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' ') > datetime('now', '-1 day') THEN m.conversation_id END) as active_24h,
+                COUNT(DISTINCT CASE WHEN REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' ') > datetime('now', '-7 days') THEN m.conversation_id END) as active_7d,
+                COUNT(DISTINCT CASE WHEN REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' ') > datetime('now', '-15 days') THEN m.conversation_id END) as active_15d
+            FROM conversation_messages m
+            JOIN page_conversations c ON m.conversation_id = c.id
+            WHERE c.page_id = ? AND m.sender_id != c.page_id
+            """,
+            (page_id,),
+        ).fetchone()
+        active_24h = active_row[0] if active_row else 0
+        active_7d = active_row[1] if active_row else 0
+        active_15d = active_row[2] if active_row else 0
+
     return {
         "total_users": total_users,
         "total_messages": total_messages,
         "longest_msg_count": longest_msg_count,
         "longest_duration_days": longest_duration_days,
         "max_streak": max_streak,
+        "active_24h": active_24h,
+        "active_7d": active_7d,
+        "active_15d": active_15d,
     }
 
 
