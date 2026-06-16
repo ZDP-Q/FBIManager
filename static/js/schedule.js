@@ -66,7 +66,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
             try {
                 const r = await fetch('/api/video/batch-analyze', { method: 'POST' });
-                if (!r.ok) throw new Error((await r.json()).detail || '批量分析失败');
+                if (!r.ok) {
+                    let msg = '批量分析失败';
+                    try { msg = (await r.json()).detail || msg; } catch {}
+                    throw new Error(msg);
+                }
                 const data = await r.json();
 
                 if (data.total === 0) {
@@ -117,7 +121,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
             try {
                 const r = await fetch(`/api/video/push/${postId}`, { method: 'POST' });
-                if (!r.ok) throw new Error((await r.json()).detail || '推送失败');
+                if (!r.ok) {
+                    let msg = '推送失败';
+                    try { msg = (await r.json()).detail || msg; } catch {}
+                    throw new Error(msg);
+                }
                 showAlert('推送成功，刷新页面...', 'success');
                 setTimeout(() => location.reload(), 600);
             } catch (e) {
@@ -143,7 +151,11 @@ document.addEventListener('DOMContentLoaded', function () {
             for (const postId of postIds) {
                 try {
                     const r = await fetch(`/api/video/push/${postId}`, { method: 'POST' });
-                    if (!r.ok) throw new Error('推送失败');
+                    if (!r.ok) {
+                        let msg = '推送失败';
+                        try { msg = (await r.json()).detail || msg; } catch {}
+                        throw new Error(msg);
+                    }
                     success++;
                     // Update row
                     const row = document.getElementById('row-' + postId);
