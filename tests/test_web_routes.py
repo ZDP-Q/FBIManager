@@ -43,6 +43,10 @@ class TestPagesAuthenticated:
         resp = auth_client.get("/chats")
         assert resp.status_code == 200
 
+    def test_chat_analytics_page(self, auth_client):
+        resp = auth_client.get("/chat-analytics")
+        assert resp.status_code == 200
+
 
 class TestPagesWithAccount:
     """Pages that need a page profile and active account."""

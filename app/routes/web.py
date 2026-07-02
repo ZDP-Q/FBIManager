@@ -141,6 +141,11 @@ async def chats_page(request: Request):
     return templates.TemplateResponse("chat_dashboard.html", {"request": request})
 
 
+@router.get("/chat-analytics", response_class=HTMLResponse)
+async def chat_analytics_page(request: Request):
+    return templates.TemplateResponse("chat_analytics.html", {"request": request})
+
+
 @router.get("/schedule", response_class=HTMLResponse)
 async def schedule_page(request: Request):
     config = load_config()

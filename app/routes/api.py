@@ -9,6 +9,7 @@ from app.routes.api_comments import router as comments_router
 from app.routes.api_monitors import router as monitors_router
 from app.routes.api_chats import router as chats_router
 from app.routes.api_video import router as video_router
+from app.routes.api_sqlbot import router as sqlbot_router
 
 router = APIRouter(prefix="/api")
 
@@ -18,3 +19,4 @@ router.include_router(comments_router)
 router.include_router(monitors_router)
 router.include_router(chats_router)
 router.include_router(video_router)
+router.include_router(sqlbot_router)
