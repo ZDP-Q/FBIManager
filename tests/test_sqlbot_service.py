@@ -35,6 +35,14 @@ def sqlbot_seed(setup_db):
         "msg_2", "conv_1", "请发一下支付截图", "123456789", "Test Page",
         "2026-07-01T16:31:00+0000",
     )
+    upsert_conversation_message(
+        "msg_3", "conv_1", "How do I top up my VIP membership with GCash?", "user_3", "Maria",
+        "2026-07-01T17:00:00+0000",
+    )
+    upsert_conversation_message(
+        "msg_4", "conv_1", "pembayaran langganan premium gagal lewat DANA", "user_4", "Rizky",
+        "2026-07-01T17:10:00+0000",
+    )
 
     upsert_page_profile(make_facebook_page_profile(page_id="other_page"))
     upsert_page_conversation("conv_other", "other_page", "2026-07-02T01:00:00+0000", 0, json.dumps({"data": []}))
@@ -53,6 +61,20 @@ def sqlbot(sqlbot_seed):
 
 
 class TestChatSQLBotService:
+    def test_plan_prompt_includes_multilingual_topic_guidance(self, sqlbot):
+        from app.services.sqlbot import LOCAL_TZ
+
+        prompt = sqlbot._build_sql_plan_prompt(
+            "拉一下从昨天上线到今天，查一下关于“充值”“会员”“支付”相关的话题",
+            now=datetime(2026, 7, 2, 12, 0, 0, tzinfo=LOCAL_TZ),
+        )[1]["content"]
+
+        assert "多语言话题匹配规则" in prompt
+        assert "top up" in prompt
+        assert "GCash" in prompt
+        assert "pembayaran" in prompt
+        assert "langganan" in prompt
+
     def test_execute_sql_uses_scoped_views(self, sqlbot):
         rows, columns, truncated = sqlbot._execute_sql(
             """
@@ -68,6 +90,44 @@ class TestChatSQLBotService:
         assert columns == ["id", "message_text", "created_at_local"]
         assert [row["id"] for row in rows] == ["msg_1"]
         assert rows[0]["created_at_local"] == "2026-07-02 00:30:00"
+
+    def test_execute_sql_matches_multilingual_payment_topics(self, sqlbot):
+        rows, columns, truncated = sqlbot._execute_sql(
+            """
+            SELECT id, message_text
+            FROM chat_messages
+            WHERE is_page_message = 0
+              AND created_at_local BETWEEN :start AND :end
+              AND (
+                message_text LIKE :kw_cn_recharge
+                OR message_text LIKE :kw_cn_member
+                OR message_text LIKE :kw_cn_pay
+                OR LOWER(COALESCE(message_text, '')) LIKE :kw_topup
+                OR LOWER(COALESCE(message_text, '')) LIKE :kw_membership
+                OR LOWER(COALESCE(message_text, '')) LIKE :kw_gcash
+                OR LOWER(COALESCE(message_text, '')) LIKE :kw_pembayaran
+                OR LOWER(COALESCE(message_text, '')) LIKE :kw_langganan
+              )
+            ORDER BY created_at_local ASC
+            LIMIT 500
+            """,
+            {
+                "start": "2026-07-01 00:00:00",
+                "end": "2026-07-02 12:00:00",
+                "kw_cn_recharge": "%充值%",
+                "kw_cn_member": "%会员%",
+                "kw_cn_pay": "%支付%",
+                "kw_topup": "%top up%",
+                "kw_membership": "%membership%",
+                "kw_gcash": "%gcash%",
+                "kw_pembayaran": "%pembayaran%",
+                "kw_langganan": "%langganan%",
+            },
+        )
+
+        assert not truncated
+        assert columns == ["id", "message_text"]
+        assert [row["id"] for row in rows] == ["msg_1", "msg_3", "msg_4"]
 
     def test_rejects_base_table_access(self, sqlbot):
         with pytest.raises(RuntimeError, match="不能访问原始表"):

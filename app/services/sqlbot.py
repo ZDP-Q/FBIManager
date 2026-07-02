@@ -146,6 +146,25 @@ class ChatSQLBotService:
             "   - is_page_message INTEGER: 1 表示主页发出的消息，0 表示用户发来的消息\n"
         )
 
+    def _multilingual_search_guidance(self) -> str:
+        return (
+            "多语言话题匹配规则：\n"
+            "- 用户用中文提出的话题词也要当成语义主题，不要只查中文原词。\n"
+            "- 私信可能包含英语、菲律宾/Tagalog、印尼语、马来语或混合拼写；"
+            "生成 SQL 时应为核心主题扩展常见同义词、动词变体、空格/连字符变体和支付渠道词。\n"
+            "- 拉丁字母关键词用 LOWER(COALESCE(message_text, '')) LIKE :kwN；"
+            "中文等非拉丁关键词可直接用 message_text LIKE :kwN。\n"
+            "- 充值/储值/余额主题可扩展：充值, 充钱, top up, topup, top-up, recharge, reload, load, "
+            "credits, credit, balance, wallet, isi saldo, isi ulang, pulsa, tambah saldo, magload, pa load。\n"
+            "- 会员/订阅/VIP 主题可扩展：会员, VIP, member, membership, premium, subscribe, subscription, "
+            "subscribed, renewal, renew, plan, package, langganan, berlangganan, keanggotaan, anggota, miyembro。\n"
+            "- 支付/付款主题可扩展：支付, 付款, payment, pay, paid, paying, checkout, billing, bill, invoice, "
+            "card, bank transfer, transfer, e-wallet, wallet, bayad, magbayad, bayar, pembayaran, dibayar, bayaran。\n"
+            "- 常见支付渠道词可作为支付主题补充：GCash, Maya, PayMaya, DANA, OVO, GoPay, ShopeePay, QRIS, "
+            "bank, Visa, Mastercard, PayPal。\n"
+            "- 同义词不要无限扩展；围绕用户问题选择最相关的 10-40 个条件，优先召回，报告阶段再归类和剔除噪音。\n"
+        )
+
     def _build_sql_plan_prompt(self, question: str, now: datetime) -> list[dict[str, str]]:
         current_time = now.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
         current_date = now.astimezone(LOCAL_TZ).strftime("%Y-%m-%d")
@@ -157,6 +176,7 @@ class ChatSQLBotService:
         user = (
             f"当前时区: Asia/Shanghai\n当前北京时间: {current_time}\n当前日期: {current_date}\n\n"
             f"{self._schema_summary()}\n"
+            f"{self._multilingual_search_guidance()}\n"
             "规则：\n"
             "- 只允许 SELECT 或 WITH 查询，只能使用 chat_conversations 和 chat_messages。\n"
             "- 不要查询真实表名，不要写入、建表、PRAGMA、ATTACH 或多语句。\n"
@@ -165,6 +185,9 @@ class ChatSQLBotService:
             "- 分析用户咨询内容时通常过滤 is_page_message = 0，除非用户明确要求看主页回复。\n"
             "- 关键词搜索使用 LIKE 命名参数，例如 message_text LIKE :kw0。\n"
             "- 使用命名参数，不要把用户输入直接拼到 SQL 字符串里。\n"
+            "- 对相关话题分析，优先返回 message_text、sender_name、created_at_local、conversation_id；"
+            "关联会话时可 JOIN chat_conversations。\n"
+            "- 查询明细时加 ORDER BY created_at_local DESC，避免结果顺序不稳定。\n"
             f"- 默认 LIMIT 不超过 {self.max_rows} 行；需要统计时优先 GROUP BY / COUNT。\n\n"
             "返回 JSON 格式：\n"
             '{"sql":"SELECT ...","params":{"start":"YYYY-MM-DD HH:MM:SS"},"note":"一句话说明查询口径"}\n\n'
@@ -352,7 +375,7 @@ class ChatSQLBotService:
         plan_content = await self._call_llm(
             self._build_sql_plan_prompt(question, now),
             temperature=0.05,
-            max_tokens=900,
+            max_tokens=1400,
         )
         plan = _extract_json_object(plan_content)
         sql = self._normalize_sql(str(plan.get("sql", "")))
