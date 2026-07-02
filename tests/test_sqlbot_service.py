@@ -40,8 +40,24 @@ def sqlbot_seed(setup_db):
         "2026-07-01T17:00:00+0000",
     )
     upsert_conversation_message(
+        "msg_3_reply", "conv_1", "Please open the private link and choose GCash on the payment page.",
+        "123456789", "Test Page", "2026-07-01T17:01:00+0000",
+    )
+    upsert_conversation_message(
         "msg_4", "conv_1", "pembayaran langganan premium gagal lewat DANA", "user_4", "Rizky",
         "2026-07-01T17:10:00+0000",
+    )
+    upsert_conversation_message(
+        "msg_false_1", "conv_1", "l am planing a trip Wrocław", "user_5", "Malgirzata",
+        "2026-07-01T17:20:00+0000",
+    )
+    upsert_conversation_message(
+        "msg_false_2", "conv_1", "Anopumapayagkana na", "user_6", "Rosaly",
+        "2026-07-01T17:25:00+0000",
+    )
+    upsert_conversation_message(
+        "msg_false_3", "conv_1", "Mamaya na my love mag charges muna ako", "user_7", "Marepil",
+        "2026-07-01T17:30:00+0000",
     )
 
     upsert_page_profile(make_facebook_page_profile(page_id="other_page"))
@@ -74,6 +90,8 @@ class TestChatSQLBotService:
         assert "GCash" in prompt
         assert "pembayaran" in prompt
         assert "langganan" in prompt
+        assert "不要写 %pay%、%plan%、%load%、%maya%" in prompt
+        assert "chat_user_reply_pairs" in prompt
 
     def test_execute_sql_uses_scoped_views(self, sqlbot):
         rows, columns, truncated = sqlbot._execute_sql(
@@ -128,6 +146,45 @@ class TestChatSQLBotService:
         assert not truncated
         assert columns == ["id", "message_text"]
         assert [row["id"] for row in rows] == ["msg_1", "msg_3", "msg_4"]
+
+    def test_reply_pair_view_matches_topics_and_avoids_false_positives(self, sqlbot):
+        rows, columns, truncated = sqlbot._execute_sql(
+            """
+            SELECT user_message_id, user_message, next_page_reply, page_reply_count_24h
+            FROM chat_user_reply_pairs
+            WHERE user_created_at_local BETWEEN :start AND :end
+              AND (
+                user_message LIKE :kw_cn_recharge
+                OR user_message LIKE :kw_cn_member
+                OR user_message LIKE :kw_cn_pay
+                OR LOWER(COALESCE(user_message, '')) REGEXP :topic_re
+              )
+            ORDER BY user_created_at_local ASC
+            LIMIT 500
+            """,
+            {
+                "start": "2026-07-01 00:00:00",
+                "end": "2026-07-02 12:00:00",
+                "kw_cn_recharge": "%充值%",
+                "kw_cn_member": "%会员%",
+                "kw_cn_pay": "%支付%",
+                "topic_re": (
+                    r"\b(top\s*-?\s*up|recharge|reload|credits?|balance|wallet|"
+                    r"membership|premium|subscribe|subscription|unsubscribe|renew(?:al)?|"
+                    r"payment|paid|paying|checkout|billing|invoice|gcash|paymaya|dana|ovo|"
+                    r"bayad|magbayad|bayar|pembayaran|dibayar|bayaran|langganan|berlangganan)\b"
+                ),
+            },
+        )
+
+        assert not truncated
+        assert columns == ["user_message_id", "user_message", "next_page_reply", "page_reply_count_24h"]
+        ids = [row["user_message_id"] for row in rows]
+        assert ids == ["msg_1", "msg_3", "msg_4"]
+        assert "payment page" in rows[1]["next_page_reply"]
+        assert "msg_false_1" not in ids
+        assert "msg_false_2" not in ids
+        assert "msg_false_3" not in ids
 
     def test_rejects_base_table_access(self, sqlbot):
         with pytest.raises(RuntimeError, match="不能访问原始表"):

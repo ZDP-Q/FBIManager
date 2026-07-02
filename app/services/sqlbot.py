@@ -19,7 +19,7 @@ from app.database import get_connection
 logger = logging.getLogger("uvicorn.error")
 
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
-ALLOWED_VIEWS = {"chat_conversations", "chat_messages"}
+ALLOWED_VIEWS = {"chat_conversations", "chat_messages", "chat_user_reply_pairs"}
 BASE_TABLES = {"page_conversations", "conversation_messages"}
 BLOCKED_SQL_WORDS = {
     "alter", "attach", "create", "delete", "detach", "drop", "insert",
@@ -144,6 +144,18 @@ class ChatSQLBotService:
             "   - created_date_local TEXT: 北京日期，格式 YYYY-MM-DD\n"
             "   - synced_at TEXT\n"
             "   - is_page_message INTEGER: 1 表示主页发出的消息，0 表示用户发来的消息\n"
+            "3. chat_user_reply_pairs\n"
+            "   - user_message_id TEXT: 用户消息 ID\n"
+            "   - conversation_id TEXT: 会话 ID\n"
+            "   - user_message TEXT: 用户私信正文\n"
+            "   - user_name TEXT: 用户名称\n"
+            "   - user_created_at_local TEXT: 用户消息北京时间，格式 YYYY-MM-DD HH:MM:SS\n"
+            "   - user_created_date_local TEXT: 用户消息北京日期，格式 YYYY-MM-DD\n"
+            "   - unread_count INTEGER: 当前会话未读数量\n"
+            "   - conversation_updated_at_local TEXT: 会话北京时间更新时间\n"
+            "   - next_page_reply TEXT: 该用户消息之后同会话第一条主页/机器人回复，可能为空\n"
+            "   - next_page_reply_at_local TEXT: 第一条主页/机器人回复北京时间，可能为空\n"
+            "   - page_reply_count_24h INTEGER: 该用户消息后 24 小时内主页/机器人回复数量\n"
         )
 
     def _multilingual_search_guidance(self) -> str:
@@ -152,16 +164,21 @@ class ChatSQLBotService:
             "- 用户用中文提出的话题词也要当成语义主题，不要只查中文原词。\n"
             "- 私信可能包含英语、菲律宾/Tagalog、印尼语、马来语或混合拼写；"
             "生成 SQL 时应为核心主题扩展常见同义词、动词变体、空格/连字符变体和支付渠道词。\n"
-            "- 拉丁字母关键词用 LOWER(COALESCE(message_text, '')) LIKE :kwN；"
-            "中文等非拉丁关键词可直接用 message_text LIKE :kwN。\n"
-            "- 充值/储值/余额主题可扩展：充值, 充钱, top up, topup, top-up, recharge, reload, load, "
-            "credits, credit, balance, wallet, isi saldo, isi ulang, pulsa, tambah saldo, magload, pa load。\n"
+            "- 拉丁字母关键词优先用 REGEXP 词边界匹配，例如 LOWER(COALESCE(user_message, '')) REGEXP :topic_re；"
+            "中文等非拉丁关键词可直接用 user_message LIKE :kwN。\n"
+            "- 不要使用过宽的短词子串条件：不要写 %pay%、%plan%、%load%、%maya%、%bank%、%card%。"
+            "这些会误命中 pumayag、planning、Mamaya、普通银行/银行卡叙事等无关内容。\n"
+            "- 充值/储值/余额主题可扩展：充值, 充钱, top up, topup, top-up, recharge, reload, "
+            "credits, credit, balance, wallet, insufficient credits, isi saldo, isi ulang, pulsa, tambah saldo, "
+            "magload, pa load, nag pa load, mapa load, walang load, no load。\n"
             "- 会员/订阅/VIP 主题可扩展：会员, VIP, member, membership, premium, subscribe, subscription, "
-            "subscribed, renewal, renew, plan, package, langganan, berlangganan, keanggotaan, anggota, miyembro。\n"
+            "subscribed, unsubscribe, unsubscribed, renewal, renew, langganan, berlangganan, keanggotaan, anggota, miyembro。\n"
             "- 支付/付款主题可扩展：支付, 付款, payment, pay, paid, paying, checkout, billing, bill, invoice, "
-            "card, bank transfer, transfer, e-wallet, wallet, bayad, magbayad, bayar, pembayaran, dibayar, bayaran。\n"
-            "- 常见支付渠道词可作为支付主题补充：GCash, Maya, PayMaya, DANA, OVO, GoPay, ShopeePay, QRIS, "
-            "bank, Visa, Mastercard, PayPal。\n"
+            "bank transfer, e-wallet, bayad, magbayad, bayar, pembayaran, dibayar, bayaran, pambayad, binabayaran。\n"
+            "- 常见支付渠道词可作为支付主题补充，但必须词边界匹配：GCash, Maya, PayMaya, DANA, OVO, GoPay, "
+            "ShopeePay, QRIS, Visa, Mastercard, PayPal。\n"
+            "- 对这类问题，优先从 chat_user_reply_pairs 查询用户问题和 next_page_reply；"
+            "只有用户明确要求原始明细时才直接查 chat_messages。\n"
             "- 同义词不要无限扩展；围绕用户问题选择最相关的 10-40 个条件，优先召回，报告阶段再归类和剔除噪音。\n"
         )
 
@@ -185,9 +202,10 @@ class ChatSQLBotService:
             "- 分析用户咨询内容时通常过滤 is_page_message = 0，除非用户明确要求看主页回复。\n"
             "- 关键词搜索使用 LIKE 命名参数，例如 message_text LIKE :kw0。\n"
             "- 使用命名参数，不要把用户输入直接拼到 SQL 字符串里。\n"
-            "- 对相关话题分析，优先返回 message_text、sender_name、created_at_local、conversation_id；"
-            "关联会话时可 JOIN chat_conversations。\n"
-            "- 查询明细时加 ORDER BY created_at_local DESC，避免结果顺序不稳定。\n"
+            "- 对“用户问了什么、机器人怎么回复、聊天总结”这类分析，优先返回 "
+            "user_message、user_name、user_created_at_local、next_page_reply、next_page_reply_at_local、"
+            "page_reply_count_24h、conversation_id、unread_count。\n"
+            "- 查询明细时加 ORDER BY user_created_at_local DESC 或 created_at_local DESC，避免结果顺序不稳定。\n"
             f"- 默认 LIMIT 不超过 {self.max_rows} 行；需要统计时优先 GROUP BY / COUNT。\n\n"
             "返回 JSON 格式：\n"
             '{"sql":"SELECT ...","params":{"start":"YYYY-MM-DD HH:MM:SS"},"note":"一句话说明查询口径"}\n\n'
@@ -229,6 +247,7 @@ class ChatSQLBotService:
             f"""
             DROP VIEW IF EXISTS temp.chat_conversations;
             DROP VIEW IF EXISTS temp.chat_messages;
+            DROP VIEW IF EXISTS temp.chat_user_reply_pairs;
 
             CREATE TEMP VIEW chat_conversations AS
             SELECT
@@ -256,8 +275,63 @@ class ChatSQLBotService:
             FROM conversation_messages m
             JOIN page_conversations c ON c.id = m.conversation_id
             WHERE c.page_id = {page_literal};
+
+            CREATE TEMP VIEW chat_user_reply_pairs AS
+            SELECT
+                m.id AS user_message_id,
+                m.conversation_id,
+                m.message_text AS user_message,
+                m.sender_id AS user_id,
+                m.sender_name AS user_name,
+                m.created_time AS user_created_time,
+                datetime(REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' '), '+8 hours') AS user_created_at_local,
+                date(datetime(REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' '), '+8 hours')) AS user_created_date_local,
+                c.unread_count,
+                c.updated_time AS conversation_updated_time,
+                datetime(REPLACE(SUBSTR(c.updated_time, 1, 19), 'T', ' '), '+8 hours') AS conversation_updated_at_local,
+                (
+                    SELECT r.message_text
+                    FROM conversation_messages r
+                    WHERE r.conversation_id = m.conversation_id
+                      AND r.sender_id = {page_literal}
+                      AND REPLACE(SUBSTR(r.created_time, 1, 19), 'T', ' ') >= REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' ')
+                    ORDER BY r.created_time ASC, r.id ASC
+                    LIMIT 1
+                ) AS next_page_reply,
+                (
+                    SELECT datetime(REPLACE(SUBSTR(r.created_time, 1, 19), 'T', ' '), '+8 hours')
+                    FROM conversation_messages r
+                    WHERE r.conversation_id = m.conversation_id
+                      AND r.sender_id = {page_literal}
+                      AND REPLACE(SUBSTR(r.created_time, 1, 19), 'T', ' ') >= REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' ')
+                    ORDER BY r.created_time ASC, r.id ASC
+                    LIMIT 1
+                ) AS next_page_reply_at_local,
+                (
+                    SELECT COUNT(*)
+                    FROM conversation_messages r
+                    WHERE r.conversation_id = m.conversation_id
+                      AND r.sender_id = {page_literal}
+                      AND REPLACE(SUBSTR(r.created_time, 1, 19), 'T', ' ') >= REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' ')
+                      AND REPLACE(SUBSTR(r.created_time, 1, 19), 'T', ' ') <= datetime(REPLACE(SUBSTR(m.created_time, 1, 19), 'T', ' '), '+24 hours')
+                ) AS page_reply_count_24h
+            FROM conversation_messages m
+            JOIN page_conversations c ON c.id = m.conversation_id
+            WHERE c.page_id = {page_literal}
+              AND m.sender_id != {page_literal};
             """
         )
+
+    def _install_regexp(self, connection: sqlite3.Connection) -> None:
+        def regexp(pattern: str | None, value: str | None) -> int:
+            if pattern is None or value is None:
+                return 0
+            try:
+                return 1 if re.search(str(pattern), str(value), flags=re.IGNORECASE) else 0
+            except re.error:
+                return 0
+
+        connection.create_function("REGEXP", 2, regexp)
 
     def _install_authorizer(self, connection: sqlite3.Connection) -> None:
         allowed_internal_tables = {"sqlite_master", "sqlite_temp_master"}
@@ -282,6 +356,7 @@ class ChatSQLBotService:
         self._validate_sql(sql)
         with get_connection() as connection:
             self._create_scoped_views(connection)
+            self._install_regexp(connection)
             connection.execute("PRAGMA query_only = ON")
             self._install_authorizer(connection)
 
@@ -356,10 +431,14 @@ class ChatSQLBotService:
             f"Params: {json.dumps(params, ensure_ascii=False)}\n"
             f"Result: {json.dumps(result_payload, ensure_ascii=False)}\n\n"
             "请输出结构清晰的中文报告，包含：\n"
-            "1. 结论摘要\n"
+            "1. 结论摘要：只总结用户关于充值/会员/支付的真实问题数量和主要类型\n"
             "2. 数据范围与口径\n"
-            "3. 关键发现（数量、趋势、集中话题、典型表述）\n"
-            "4. 建议动作\n"
+            "3. 用户问题分类：按充值/余额、会员/订阅、支付/扣费、退订等类别归纳，列出典型原文\n"
+            "4. 机器人/页面回复情况：根据 next_page_reply 或页面回复字段总结是否回复、怎么回复、是否解决；"
+            "没有回复要明确标注“未看到后续页面回复”\n"
+            "5. 聊天总结：用短段落总结用户困惑、机器人回应模式和仍未解决的问题\n"
+            "6. 误匹配说明：如果结果里有 planning、pumayag、Mamaya、普通手机充电等明显无关内容，"
+            "只放在误匹配说明中，不要当作业务结论\n"
             "如果没有结果，明确说明未查到匹配私信，并给出可能的排查方向。"
         )
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
